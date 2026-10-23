@@ -8,3 +8,4 @@ instance/
 # Dados reais (contêm dados pessoais: nomes, CPF, telefones) — não versionar
 data/*
 !data/.gitkeep
+importacao-relatorio.txt
