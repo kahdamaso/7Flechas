@@ -13,6 +13,17 @@ Visão geral
                           ainda? Fica identificada pelo médium ("Exu da Jessica").
 - ``Configuracao``        parâmetros da casa (senha de acesso).
 
+Fase 2 (a gira):
+- ``Gira``                data e tipo (Sexta: pública; Quarta: só Auxiliar e
+                          Corrente; Especial).
+- ``Presenca``            chamada dos médiuns (SIM/NÃO).
+- ``Inscricao``           quem deu o nome na gira; ``InscricaoLinha`` = linhas
+                          escolhidas por Auxiliar/Corrente (GERAL).
+- ``PedidoSeteFlechas``   orientação, consagração, autorização para entidade.
+- ``CamboneGira``         quem camboneia cada entidade na gira.
+- ``Conversa``            pessoa x entidade (ou recusa de uma linha).
+- ``Retorno``             pedido de volta; pendente até ser concluído.
+
 Uso simultâneo: os registros editáveis têm a coluna ``versao`` (controle
 otimista do SQLAlchemy). Se dois aparelhos abrem o mesmo cadastro e ambos
 salvam, o segundo é avisado em vez de apagar sem perceber o que o primeiro fez.
@@ -248,6 +259,216 @@ class Entidade(VersaoMixin, db.Model):
 
     def __repr__(self):
         return f"<Entidade {self.rotulo}>"
+
+
+# ---------------------------------------------------------------------------
+# Fase 2 — a gira
+# ---------------------------------------------------------------------------
+
+TIPOS_GIRA = ["Sexta", "Quarta", "Especial"]
+# na quarta só são atendidos os membros que podem escolher linhas
+CATEGORIAS_QUARTA = ["Auxiliar", "Corrente"]
+# Consulente e Colaborador não escolhem: são chamados em todas as linhas
+CATEGORIAS_TODAS_LINHAS = ["Consulente", "Colaborador"]
+PEDIDOS_SETE_FLECHAS = ["Orientação espiritual", "Consagrar pano", "Consagrar guiada",
+                        "Autorização para entidade"]
+
+
+class Gira(VersaoMixin, TimestampMixin, db.Model):
+    __tablename__ = "giras"
+
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, nullable=False, index=True)
+    tipo = db.Column(db.String(20), nullable=False, default="Sexta")
+    descricao = db.Column(db.String(200))
+    encerrada = db.Column(db.Boolean, nullable=False, default=False)
+    observacoes = db.Column(db.Text)
+
+    presencas = db.relationship("Presenca", back_populates="gira", cascade="all, delete-orphan")
+    inscricoes = db.relationship("Inscricao", back_populates="gira", cascade="all, delete-orphan",
+                                 order_by="Inscricao.chegada")
+    conversas = db.relationship("Conversa", back_populates="gira", cascade="all, delete-orphan")
+
+    @property
+    def publica(self):
+        return self.tipo != "Quarta"
+
+    def __repr__(self):
+        return f"<Gira {self.data} {self.tipo}>"
+
+
+class Presenca(db.Model):
+    """Chamada: o médium está (SIM) ou não (NÃO) na gira."""
+
+    __tablename__ = "presencas"
+    __table_args__ = (db.UniqueConstraint("gira_id", "pessoa_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    gira_id = db.Column(db.Integer, db.ForeignKey("giras.id", ondelete="CASCADE"), nullable=False)
+    pessoa_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False)
+    presente = db.Column(db.Boolean, nullable=False)
+    registrado_por = db.Column(db.String(100))
+    registrado_em = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    gira = db.relationship("Gira", back_populates="presencas")
+    pessoa = db.relationship("Pessoa")
+
+
+class CamboneGira(db.Model):
+    """Quem está cambonando cada entidade naquela gira."""
+
+    __tablename__ = "cambones_gira"
+    __table_args__ = (db.UniqueConstraint("gira_id", "entidade_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    gira_id = db.Column(db.Integer, db.ForeignKey("giras.id", ondelete="CASCADE"), nullable=False)
+    entidade_id = db.Column(db.Integer, db.ForeignKey("entidades.id", ondelete="CASCADE"), nullable=False)
+    cambone_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="SET NULL"))
+
+    cambone = db.relationship("Pessoa")
+    entidade = db.relationship("Entidade")
+
+
+class Inscricao(db.Model):
+    """Pessoa que deu o nome na gira e está na fila de atendimento."""
+
+    __tablename__ = "inscricoes"
+    __table_args__ = (db.UniqueConstraint("gira_id", "pessoa_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    gira_id = db.Column(db.Integer, db.ForeignKey("giras.id", ondelete="CASCADE"), nullable=False)
+    pessoa_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False)
+    chegada = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    # categoria no dia (a pessoa pode mudar de categoria depois)
+    categoria = db.Column(db.String(20), nullable=False)
+    # Consulente/Colaborador: chamados em todas as linhas
+    todas_linhas = db.Column(db.Boolean, nullable=False, default=False)
+    observacao = db.Column(db.String(200))
+    registrado_por = db.Column(db.String(100))
+
+    gira = db.relationship("Gira", back_populates="inscricoes")
+    pessoa = db.relationship("Pessoa")
+    linhas = db.relationship("InscricaoLinha", back_populates="inscricao", cascade="all, delete-orphan")
+    pedidos = db.relationship("PedidoSeteFlechas", back_populates="inscricao",
+                              cascade="all, delete-orphan")
+    conversas = db.relationship("Conversa", back_populates="inscricao", cascade="all, delete-orphan",
+                                order_by="Conversa.chamado_em")
+
+    @property
+    def ids_linhas(self):
+        return {l.linha_id for l in self.linhas}
+
+
+class InscricaoLinha(db.Model):
+    """Linha escolhida (GERAL) por Auxiliar/Corrente."""
+
+    __tablename__ = "inscricao_linhas"
+    __table_args__ = (db.UniqueConstraint("inscricao_id", "linha_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    inscricao_id = db.Column(db.Integer, db.ForeignKey("inscricoes.id", ondelete="CASCADE"), nullable=False)
+    linha_id = db.Column(db.Integer, db.ForeignKey("linhas.id"), nullable=False)
+
+    inscricao = db.relationship("Inscricao", back_populates="linhas")
+    linha = db.relationship("Linha")
+
+
+class PedidoSeteFlechas(db.Model):
+    """Orientação, consagração ou autorização para conversar com uma entidade específica."""
+
+    __tablename__ = "pedidos_sete_flechas"
+
+    id = db.Column(db.Integer, primary_key=True)
+    inscricao_id = db.Column(db.Integer, db.ForeignKey("inscricoes.id", ondelete="CASCADE"), nullable=False)
+    tipo = db.Column(db.String(40), nullable=False)
+    # entidade pedida (só para "Autorização para entidade")
+    entidade_id = db.Column(db.Integer, db.ForeignKey("entidades.id", ondelete="SET NULL"))
+    # pendente -> atendido | autorizado | negado
+    situacao = db.Column(db.String(20), nullable=False, default="pendente")
+    registrado_por = db.Column(db.String(100))
+
+    inscricao = db.relationship("Inscricao", back_populates="pedidos")
+    entidade = db.relationship("Entidade")
+
+
+SITUACOES_CONVERSA = {
+    "chamado": "Em atendimento",
+    "atendido": "Atendido",
+    "nao_quis": "Não quis passar",
+    "ausente": "Ausente quando chamado",
+}
+
+
+class Conversa(db.Model):
+    """Uma pessoa conversando com uma entidade (ou recusando uma linha)."""
+
+    __tablename__ = "conversas"
+    __table_args__ = (
+        # uma entidade atende uma pessoa por vez, e a pessoa está com uma entidade por vez;
+        # protege contra dois aparelhos chamando ao mesmo tempo
+        db.Index("ux_conversa_entidade_aberta", "gira_id", "entidade_id", unique=True,
+                 sqlite_where=db.text("situacao = 'chamado'")),
+        db.Index("ux_conversa_pessoa_aberta", "inscricao_id", unique=True,
+                 sqlite_where=db.text("situacao = 'chamado'")),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    gira_id = db.Column(db.Integer, db.ForeignKey("giras.id", ondelete="CASCADE"), nullable=False)
+    inscricao_id = db.Column(db.Integer, db.ForeignKey("inscricoes.id", ondelete="CASCADE"), nullable=False)
+    linha_id = db.Column(db.Integer, db.ForeignKey("linhas.id"), nullable=False)
+    # vazio quando a pessoa recusou a linha sem ser chamada por uma entidade
+    entidade_id = db.Column(db.Integer, db.ForeignKey("entidades.id", ondelete="SET NULL"))
+    cambone_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="SET NULL"))
+    situacao = db.Column(db.String(20), nullable=False, default="chamado")
+    chamado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    encerrado_em = db.Column(db.DateTime)
+    # retorno que esta conversa cumpre
+    # use_alter: conversas e retornos se referenciam; isso permite ordenar a criação/remoção
+    retorno_id = db.Column(db.Integer, db.ForeignKey("retornos.id", ondelete="SET NULL",
+                                                     use_alter=True, name="fk_conversa_retorno"))
+    # chamada liberada apesar de parentesco com o médium
+    liberacao_parentesco = db.Column(db.String(200))
+    observacao = db.Column(db.String(300))
+    registrado_por = db.Column(db.String(100))
+
+    gira = db.relationship("Gira", back_populates="conversas")
+    inscricao = db.relationship("Inscricao", back_populates="conversas")
+    linha = db.relationship("Linha")
+    entidade = db.relationship("Entidade")
+    cambone = db.relationship("Pessoa")
+    retorno = db.relationship("Retorno", foreign_keys=[retorno_id])
+
+    @property
+    def rotulo_situacao(self):
+        return SITUACOES_CONVERSA.get(self.situacao, self.situacao)
+
+
+class Retorno(db.Model):
+    """Entidade pediu que a pessoa volte. Fica pendente até ser concluído."""
+
+    __tablename__ = "retornos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pessoa_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False)
+    entidade_id = db.Column(db.Integer, db.ForeignKey("entidades.id", ondelete="SET NULL"))
+    cambone_id = db.Column(db.Integer, db.ForeignKey("pessoas.id", ondelete="SET NULL"))
+    conversa_origem_id = db.Column(db.Integer, db.ForeignKey("conversas.id", ondelete="SET NULL"))
+    data_prevista = db.Column(db.Date, nullable=False)
+    observacao = db.Column(db.String(300))
+    # pendente | concluido | cancelado
+    situacao = db.Column(db.String(20), nullable=False, default="pendente", index=True)
+    concluido_em = db.Column(db.DateTime)
+    registrado_por = db.Column(db.String(100))
+    registrado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    pessoa = db.relationship("Pessoa", foreign_keys=[pessoa_id])
+    entidade = db.relationship("Entidade")
+    cambone = db.relationship("Pessoa", foreign_keys=[cambone_id])
+    conversa_origem = db.relationship("Conversa", foreign_keys=[conversa_origem_id])
+
+    @property
+    def atrasado(self):
+        return self.situacao == "pendente" and self.data_prevista < date.today()
 
 
 class Configuracao(db.Model):

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block titulo %}Mapa {{ g.data|data }}{% endblock %}
+{% block conteudo %}
+{% set etapa = 'mapa' %}{% include "giras/_nav.html" %}
+<div id="mapa" data-atualizar="20">
+<p class="small text-muted">Quem passou com quem em cada linha. ✔ atendido · ⏳ em atendimento · ✖ não quis passar · ? não estava.
+  Em linhas sem conversa, o botão “não quer” tira a pessoa da fila daquela linha.</p>
+{% for categoria, itens in grupos %}
+  <h2 class="h6 mt-3">{{ categoria }}{{ '' if categoria == 'Corrente' else ('es' if categoria in ('Auxiliar', 'Colaborador') else 's') }} <span class="badge text-bg-secondary">{{ itens|length }}</span></h2>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered bg-body tabela-mapa">
+      <thead class="table-light"><tr><th class="sticky-col">Nome</th>{% for l in linhas %}<th>{{ l.nome }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for i in itens %}
+          <tr>
+            <td class="sticky-col"><a href="{{ url_for('giras.inscrever', id=g.id, pessoa_id=i.pessoa_id) }}">{{ i.pessoa.nome }}</a></td>
+            {% for l in linhas %}
+              {% set cs = celulas.get((i.id, l.id), []) %}
+              <td>
+                {% for c in cs %}
+                  <div>{{ {'atendido': '✔', 'chamado': '⏳', 'nao_quis': '✖', 'ausente': '?'}[c.situacao] }}
+                    {{ c.entidade.rotulo if c.entidade else '' }}{% if c.retorno %} <span class="badge text-bg-danger">R</span>{% endif %}</div>
+                {% endfor %}
+                {% if not cs and (i.todas_linhas or l.id in i.ids_linhas) and not g.encerrada %}
+                  <form method="post" action="{{ url_for('giras.recusar_linha', id=g.id, insc_id=i.id) }}">
+                    {{ csrf() }}<input type="hidden" name="linha_id" value="{{ l.id }}">
+                    <button class="btn btn-link btn-sm p-0 text-muted">não quer</button>
+                  </form>
+                {% elif not cs %}<span class="text-muted">—</span>{% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="text-muted">Ninguém inscrito ainda.</p>
+{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='app.js') }}"></script>{% endblock %}

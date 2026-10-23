@@ -22,12 +22,15 @@
 {% endif %}
 
 <ul class="nav nav-tabs mb-3 flex-nowrap overflow-auto" role="tablist">
-  {% for chave_aba, rotulo in [('dados','Dados'), ('ficha','Ficha espiritual'), ('parentes','Parentes'), ('historico','Histórico')] %}
+  {% set pendentes = retornos|selectattr('situacao', 'equalto', 'pendente')|list %}
+  {% for chave_aba, rotulo in [('dados','Dados'), ('retornos','Retornos'), ('giras','Giras'), ('ficha','Ficha espiritual'), ('parentes','Parentes'), ('historico','Histórico')] %}
     <li class="nav-item" role="presentation">
       <button class="nav-link text-nowrap {% if aba == chave_aba %}active{% endif %}" data-bs-toggle="tab"
               data-bs-target="#aba-{{ chave_aba }}" type="button" role="tab">{{ rotulo }}
         {% if chave_aba == 'ficha' and p.entidades %}<span class="badge text-bg-secondary">{{ p.entidades|length }}</span>{% endif %}
         {% if chave_aba == 'parentes' and parentes %}<span class="badge text-bg-warning">{{ parentes|length }}</span>{% endif %}
+        {% if chave_aba == 'retornos' and pendentes %}<span class="badge text-bg-danger">{{ pendentes|length }}</span>{% endif %}
+        {% if chave_aba == 'giras' and inscricoes %}<span class="badge text-bg-secondary">{{ inscricoes|length }}</span>{% endif %}
       </button>
     </li>
   {% endfor %}
@@ -47,6 +50,34 @@
       {% if p.observacoes %}<dt class="col-5 col-md-3">Observações</dt><dd class="col-7 col-md-9" style="white-space: pre-line">{{ p.observacoes }}</dd>{% endif %}
     </dl>
     <p class="text-muted small mt-3 mb-0">Última alteração: {{ p.atualizado_em.strftime('%d/%m/%Y %H:%M') }}{% if p.atualizado_por %} por {{ p.atualizado_por }}{% endif %}</p>
+  </div>
+
+  {# ------------------------------------------------------------- Retornos #}
+  <div class="tab-pane fade {% if aba == 'retornos' %}show active{% endif %}" id="aba-retornos" role="tabpanel">
+    {% include "retornos/_lista.html" %}
+  </div>
+
+  {# ------------------------------------------------------------- Giras (prontuário) #}
+  <div class="tab-pane fade {% if aba == 'giras' %}show active{% endif %}" id="aba-giras" role="tabpanel">
+    {% for insc in inscricoes %}
+      <div class="card mb-2"><div class="card-body py-2">
+        <div class="d-flex justify-content-between">
+          <a class="fw-semibold" href="{{ url_for('giras.painel', id=insc.gira.id) }}">{{ insc.gira.data|data }} · {{ insc.gira.tipo }}</a>
+          <span class="small text-muted">chegada {{ insc.chegada|hora }} · {{ insc.categoria }}</span>
+        </div>
+        {% for pedido in insc.pedidos %}
+          <div class="small">Sete Flechas: {{ pedido.tipo }}{% if pedido.entidade %} ({{ pedido.entidade.rotulo }}){% endif %} — {{ pedido.situacao }}</div>
+        {% endfor %}
+        <ul class="list-unstyled small mb-0 mt-1">
+          {% for c in insc.conversas %}
+            <li><span class="text-muted">{{ c.linha.nome }}:</span>
+              {% if c.entidade %}{{ c.entidade.rotulo }} <span class="text-muted">({{ c.entidade.medium.nome_curto }})</span>{% endif %}
+              — {{ c.rotulo_situacao }}{% if c.retorno %} · era retorno{% endif %}
+              {% if c.cambone %}<span class="text-muted">· cambone {{ c.cambone.nome_curto }}</span>{% endif %}</li>
+          {% else %}<li class="text-muted">Sem conversas registradas.</li>{% endfor %}
+        </ul>
+      </div></div>
+    {% else %}<p class="text-muted">Ainda não participou de nenhuma gira registrada no sistema.</p>{% endfor %}
   </div>
 
   {# ------------------------------------------------------------- Ficha espiritual #}
@@ -134,7 +165,6 @@
         </li>
       {% else %}<li class="list-group-item text-muted">Sem registros.</li>{% endfor %}
     </ul>
-    <p class="text-muted small mt-3">Giras, conversas e retornos aparecerão aqui na Fase 2.</p>
     <div class="mt-4 text-end">
       {{ botao_excluir(url_for('pessoas.excluir', id=p.id), 'Excluir ' ~ p.nome ~ ' e todo o histórico? Para quem saiu da casa, prefira desmarcar "Ativo(a)" no cadastro.', 'Excluir cadastro') }}
     </div>

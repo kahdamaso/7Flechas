@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, selo_categoria, botao_excluir %}
+{% block titulo %}Inscrição de {{ p.nome }}{% endblock %}
+{% block conteudo %}
+{% set etapa = 'inscricao' %}{% include "giras/_nav.html" %}
+
+<div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+  <h2 class="h4 mb-0"><a class="text-body" href="{{ url_for('pessoas.prontuario', id=p.id) }}">{{ p.nome }}</a></h2>
+  {{ selo_categoria(p.categoria) }}
+</div>
+{% if insc %}<p class="small text-success mb-2">Inscrito(a) às {{ insc.chegada|hora }}{% if insc.registrado_por %} por {{ insc.registrado_por }}{% endif %}.</p>{% endif %}
+
+{# ---- alertas para a recepção ---- #}
+{% for r in retornos %}
+  <div class="alert alert-danger py-2 mb-2">
+    <strong>Retorno pendente:</strong> {{ r.entidade.rotulo if r.entidade else 'entidade removida' }}
+    {% if r.entidade %}<span class="small">({{ r.entidade.linha.nome }} · {{ r.entidade.medium.nome_curto }})</span>{% endif %}
+    — previsto {{ r.data_prevista|data }}
+    {% if r.entidade and r.entidade.medium_id not in presentes %}<br><span class="small">O médium não está presente na chamada: o retorno continua pendente.</span>{% endif %}
+    {% if r.observacao %}<br><span class="small fst-italic">{{ r.observacao }}</span>{% endif %}
+  </div>
+{% endfor %}
+{% if parentes %}
+  <div class="alert alert-warning py-2 mb-2">
+    <strong>Parentes na casa:</strong>
+    {% for par in parentes %}{{ par.nome_curto }}{% if par.id in parentes_em_terra %} <span class="badge text-bg-warning">em terra</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+    <br><span class="small">Não pode conversar com as entidades desses médiuns (o sistema já bloqueia).</span>
+  </div>
+{% endif %}
+{% if impedimento %}<div class="alert alert-secondary">{{ impedimento }}</div>{% endif %}
+
+{% if not impedimento %}
+<form method="post">
+  {{ csrf() }}
+  {% if p.categoria in ('Consulente', 'Colaborador') %}
+    <div class="card card-body mb-3">
+      <strong>Passa em todas as linhas</strong>
+      <span class="small text-muted">Consulentes e Colaboradores são chamados em todas as linhas; se não quiser passar em alguma, registre no Mapa.</span>
+    </div>
+  {% else %}
+    <h3 class="h6">Linhas que vai passar (GERAL)</h3>
+    <p class="small text-muted mb-2">Linhas com entidade em terra hoje estão destacadas.</p>
+    <div class="row g-2 mb-3">
+      {% set marcadas = insc.ids_linhas if insc else [] %}
+      {% for l in linhas %}
+        <div class="col-6 col-md-4">
+          <input type="checkbox" class="btn-check" name="linhas" value="{{ l.id }}" id="l{{ l.id }}" {% if l.id in marcadas %}checked{% endif %}>
+          <label class="btn w-100 {{ 'btn-outline-success' if l.id in linhas_em_terra else 'btn-outline-secondary opacity-75' }}" for="l{{ l.id }}">{{ l.nome }}</label>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <h3 class="h6">Sete Flechas</h3>
+  {% set ja = insc.pedidos|map(attribute='tipo')|list if insc else [] %}
+  <div class="row g-2 mb-2">
+    {% for t in pedidos_tipos %}
+      <div class="col-12 col-md-4">
+        <input type="checkbox" class="btn-check" name="pedidos" value="{{ t }}" id="ped{{ loop.index }}" {% if t in ja %}checked disabled{% endif %}>
+        <label class="btn btn-outline-primary w-100" for="ped{{ loop.index }}">{{ t }}</label>
+      </div>
+    {% endfor %}
+  </div>
+  <details class="mb-3" {% if insc and insc.pedidos|selectattr('entidade_id')|list %}open{% endif %}>
+    <summary class="small">Pedir autorização para conversar com uma entidade específica</summary>
+    {% if insc %}
+      <ul class="small mt-2 mb-1">
+        {% for pedido in insc.pedidos if pedido.entidade %}<li>{{ pedido.entidade.rotulo }} — {{ pedido.situacao }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    <select class="form-select mt-2" name="autorizacoes">
+      <option value="">Escolha a entidade…</option>
+      {% for e in entidades_casa if e.medium_id != p.id %}
+        <option value="{{ e.id }}">{{ e.linha.nome }} · {{ e.rotulo }} ({{ e.medium.nome_curto }})</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">O pedido vai para o Sete Flechas, que autoriza ou não durante a conversa.</div>
+  </details>
+
+  <div class="mb-3"><label class="form-label" for="observacao">Observação</label>
+    <input class="form-control" id="observacao" name="observacao" value="{{ insc.observacao if insc and insc.observacao else '' }}"></div>
+
+  <div class="barra-acoes">
+    <button class="btn btn-success btn-lg">{{ 'Salvar alterações' if insc else 'Inscrever' }}</button>
+    <a class="btn btn-link" href="{{ url_for('giras.inscricao', id=g.id) }}">Voltar</a>
+  </div>
+</form>
+{% if insc %}
+  <div class="mt-3">{{ botao_excluir(url_for('giras.remover_inscricao', id=g.id, insc_id=insc.id), 'Remover a inscrição de ' ~ p.nome ~ ' nesta gira?', 'Remover inscrição') }}</div>
+{% endif %}
+{% endif %}
+{% endblock %}

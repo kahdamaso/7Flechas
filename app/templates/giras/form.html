@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, versao %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+<h1 class="h4 mb-3">{{ titulo }}</h1>
+<form method="post" class="caixa-form">
+  {{ csrf() }}{{ versao(g) }}
+  <div class="mb-3"><label class="form-label" for="data">Data</label>
+    <input class="form-control form-control-lg" id="data" type="date" name="data" required value="{{ g.data.isoformat() }}"></div>
+  <div class="mb-3"><label class="form-label d-block">Tipo</label>
+    <div class="row g-2">
+      {% for t, ajuda in [('Sexta', 'pública: consulentes e membros'), ('Quarta', 'só Auxiliares e Corrente'), ('Especial', 'festas e giras extras')] %}
+        <div class="col-12 col-md-4">
+          <input type="radio" class="btn-check" name="tipo" id="tipo{{ loop.index }}" value="{{ t }}" {% if g.tipo == t %}checked{% endif %}>
+          <label class="btn btn-outline-success w-100 text-start" for="tipo{{ loop.index }}">
+            <strong>{{ t }}</strong><br><small>{{ ajuda }}</small></label>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="mb-3"><label class="form-label" for="descricao">Descrição (opcional)</label>
+    <input class="form-control" id="descricao" name="descricao" value="{{ g.descricao or '' }}" placeholder="ex.: Gira de Preto Velho"></div>
+  <div class="mb-3"><label class="form-label" for="observacoes">Observações</label>
+    <textarea class="form-control" id="observacoes" name="observacoes" rows="2">{{ g.observacoes or '' }}</textarea></div>
+  {% if confirmar %}
+  <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="confirmar" id="confirmar">
+    <label class="form-check-label" for="confirmar">Criar outra gira no mesmo dia</label></div>
+  {% endif %}
+  <button class="btn btn-success btn-lg">Salvar</button>
+  <a class="btn btn-link" href="{{ url_for('giras.painel', id=g.id) if g.id else url_for('giras.lista') }}">Cancelar</a>
+</form>
+<script>
+// sugere o tipo pelo dia da semana (quarta/sexta) quando a data muda
+document.getElementById('data').addEventListener('change', function (ev) {
+  var dia = new Date(ev.target.value + 'T12:00:00').getDay();
+  var tipo = dia === 3 ? 'Quarta' : (dia === 5 ? 'Sexta' : 'Especial');
+  var opcao = document.querySelector('input[name="tipo"][value="' + tipo + '"]');
+  if (opcao) { opcao.checked = true; }
+});
+</script>
+{% endblock %}

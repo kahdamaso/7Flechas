@@ -15,9 +15,9 @@ def create_app(config_class=Config):
     csrf.init_app(app)
 
     from . import models
-    from .routes import acesso, entidades, main, pessoas
+    from .routes import acesso, entidades, giras, main, pessoas, retornos
 
-    for bp in (acesso.bp, main.bp, pessoas.bp, entidades.bp):
+    for bp in (acesso.bp, main.bp, pessoas.bp, entidades.bp, giras.bp, retornos.bp):
         app.register_blueprint(bp)
 
     @app.errorhandler(StaleDataError)
@@ -31,6 +31,9 @@ def create_app(config_class=Config):
     app.jinja_env.filters["cpf"] = formatar_cpf
     app.jinja_env.filters["telefone"] = formatar_telefone
     app.jinja_env.filters["data"] = lambda d: d.strftime("%d/%m/%Y") if d else ""
+    app.jinja_env.filters["hora"] = lambda d: d.strftime("%H:%M") if d else ""
+    app.jinja_env.filters["dia_semana"] = lambda d: [
+        "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"][d.weekday()]
 
     with app.app_context():
         db.create_all()

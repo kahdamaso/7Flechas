@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, selo_categoria %}
+{% block titulo %}{{ ent.rotulo }}{% endblock %}
+
+{% macro botao_chamar(insc, rotulo='Chamar', classe='btn-success') -%}
+<form method="post" action="{{ url_for('giras.chamar', id=g.id, ent_id=ent.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="inscricao_id" value="{{ insc.id }}">
+  <button class="btn {{ classe }}" {% if aberta or g.encerrada %}disabled{% endif %}>{{ rotulo }}</button>
+</form>
+{%- endmacro %}
+
+{% macro linha_pessoa(insc, detalhe='') -%}
+<div class="d-flex justify-content-between align-items-center gap-2">
+  <div>
+    <div class="fw-semibold">{{ insc.pessoa.nome }}</div>
+    <div class="small text-muted">{{ insc.categoria }} · chegou {{ insc.chegada|hora }}{% if insc.pessoa.incorpora %} · incorpora{% endif %}{% if detalhe %} · {{ detalhe }}{% endif %}</div>
+  </div>
+  {{ botao_chamar(insc) }}
+</div>
+{%- endmacro %}
+
+{% block conteudo %}
+{% set etapa = 'atendimento' %}{% include "giras/_nav.html" %}
+<a class="small" href="{{ url_for('giras.atendimento', id=g.id) }}">← todas as entidades</a>
+<div class="d-flex justify-content-between align-items-start gap-2 mt-1 mb-2">
+  <div>
+    <h2 class="h4 mb-0">{{ ent.rotulo }}</h2>
+    <div class="text-muted small">{{ ent.linha.nome }} · médium {{ ent.medium.nome }}</div>
+  </div>
+  {% if not presente %}<span class="badge text-bg-danger">médium não está na chamada</span>{% endif %}
+</div>
+
+<form method="post" action="{{ url_for('giras.definir_cambone', id=g.id, ent_id=ent.id) }}" class="d-flex gap-2 align-items-center mb-3">
+  {{ csrf() }}
+  <label class="small text-muted text-nowrap" for="cambone_id">Cambone</label>
+  <select class="form-select form-select-sm" id="cambone_id" name="cambone_id" onchange="this.form.submit()">
+    <option value="">— não informado —</option>
+    {% for c in cambones %}<option value="{{ c.id }}" {% if cambone and cambone.id == c.id %}selected{% endif %}>{{ c.nome }}{% if c.tem_funcao('Cambone') %} (cambone){% endif %}</option>{% endfor %}
+  </select>
+  <noscript><button class="btn btn-sm btn-outline-secondary">OK</button></noscript>
+</form>
+
+{# ------------------------------------------------ conversa em andamento #}
+{# fora do bloco que se atualiza sozinho, para não apagar o formulário de retorno em preenchimento #}
+{% if aberta %}
+  <div class="card border-warning mb-3">
+    <div class="card-body">
+      <div class="small text-muted">Conversando agora (desde {{ aberta.chamado_em|hora }})</div>
+      <div class="fs-5 fw-semibold">{{ aberta.inscricao.pessoa.nome }}</div>
+      {% if aberta.retorno %}<span class="badge text-bg-danger">retorno de {{ aberta.retorno.data_prevista|data }}</span>{% endif %}
+      {% if aberta.liberacao_parentesco %}<div class="small text-danger">Liberado apesar do parentesco: {{ aberta.liberacao_parentesco }}</div>{% endif %}
+
+      {% for pedido in pedidos_autorizacao %}
+        <div class="alert alert-info py-2 mt-2 mb-0">
+          Pede autorização para conversar com <strong>{{ pedido.entidade.rotulo }}</strong> ({{ pedido.entidade.medium.nome_curto }})
+          <form method="post" action="{{ url_for('giras.decidir_pedido', id=g.id, pedido_id=pedido.id) }}" class="d-flex gap-2 mt-2">
+            {{ csrf() }}
+            <button class="btn btn-sm btn-primary" name="decisao" value="autorizar">Autorizar</button>
+            <button class="btn btn-sm btn-outline-secondary" name="decisao" value="negar">Não autorizar</button>
+          </form>
+        </div>
+      {% endfor %}
+
+      <form method="post" action="{{ url_for('giras.encerrar_conversa', id=g.id, conversa_id=aberta.id) }}" class="mt-3">
+        {{ csrf() }}
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" role="switch" name="teve_retorno" id="teve_retorno"
+                 onchange="document.getElementById('campos-retorno').hidden = !this.checked">
+          <label class="form-check-label fw-semibold" for="teve_retorno">A entidade pediu retorno</label>
+        </div>
+        <div id="campos-retorno" class="row g-2 mb-2" hidden>
+          <div class="col-5"><input class="form-control" type="date" name="retorno_em" value="{{ data_retorno.isoformat() }}"></div>
+          <div class="col-7"><input class="form-control" name="retorno_obs" placeholder="Observação (opcional)"></div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-success btn-lg flex-grow-1" name="situacao" value="atendido">Atendido</button>
+          <button class="btn btn-outline-secondary" name="situacao" value="nao_quis">Não quis passar</button>
+          <button class="btn btn-outline-secondary" name="situacao" value="ausente">Não estava</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+
+<div id="painel-entidade" data-atualizar="8">
+{# ------------------------------------------------ quem chamar #}
+<h3 class="h6 mt-2">{{ 'Próximos' if aberta else 'Quem chamar agora' }} <span class="badge text-bg-secondary">{{ s.total }}</span></h3>
+{% if aberta %}<p class="small text-muted">Encerre a conversa atual para chamar a próxima pessoa.</p>{% endif %}
+
+{% if s.retornos %}
+  <div class="small fw-semibold text-danger mt-2">Com retorno para esta entidade</div>
+  <div class="list-group mb-2">
+    {% for insc, r in s.retornos %}<div class="list-group-item list-group-item-danger">{{ linha_pessoa(insc, 'retorno de ' ~ r.data_prevista|data) }}</div>{% endfor %}
+  </div>
+{% endif %}
+{% if s.sete_flechas %}
+  <div class="small fw-semibold text-primary mt-2">Pedidos ao Sete Flechas</div>
+  <div class="list-group mb-2">
+    {% for insc, pedidos in s.sete_flechas %}<div class="list-group-item list-group-item-primary">{{ linha_pessoa(insc, pedidos|map(attribute='tipo')|join(', ')) }}</div>{% endfor %}
+  </div>
+{% endif %}
+{% if s.autorizados %}
+  <div class="small fw-semibold text-primary mt-2">Autorizados pelo Sete Flechas</div>
+  <div class="list-group mb-2">
+    {% for insc, pedido in s.autorizados %}<div class="list-group-item list-group-item-info">{{ linha_pessoa(insc) }}</div>{% endfor %}
+  </div>
+{% endif %}
+<div class="small fw-semibold mt-2">Fila de {{ ent.linha.nome }}</div>
+<div class="list-group mb-2">
+  {% for insc in s.fila %}
+    <div class="list-group-item {% if loop.first and not (s.retornos or s.sete_flechas or s.autorizados) %}list-group-item-success{% endif %}">{{ linha_pessoa(insc) }}</div>
+  {% else %}
+    <div class="list-group-item text-muted small">Ninguém aguardando nesta linha.</div>
+  {% endfor %}
+</div>
+{% if s.bloqueados %}
+  <details class="mb-2">
+    <summary class="small text-muted">{{ s.bloqueados|length }} bloqueado(s) por parentesco</summary>
+    <ul class="small mb-0">{% for insc, motivo in s.bloqueados %}<li>{{ insc.pessoa.nome }} — {{ motivo }}</li>{% endfor %}</ul>
+  </details>
+{% endif %}
+</div>
+
+{# ------------------------------------------------ chamar outra pessoa #}
+<details class="mt-3">
+  <summary class="small">Chamar outra pessoa inscrita</summary>
+  <form method="post" action="{{ url_for('giras.chamar', id=g.id, ent_id=ent.id) }}" class="card card-body mt-2">
+    {{ csrf() }}
+    <select class="form-select mb-2" name="inscricao_id" required>
+      <option value="">Escolha…</option>
+      {% for i in inscritos|sort(attribute='pessoa.nome') %}<option value="{{ i.id }}">{{ i.pessoa.nome }}</option>{% endfor %}
+    </select>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="liberar" id="liberar">
+      <label class="form-check-label small" for="liberar">Liberar mesmo sendo parente do médium (fica registrado)</label>
+    </div>
+    <input class="form-control mb-2" name="liberacao_parentesco" placeholder="Quem liberou e por quê">
+    <button class="btn btn-outline-success" {% if aberta or g.encerrada %}disabled{% endif %}>Chamar</button>
+  </form>
+</details>
+
+{% if atendidos %}
+  <h3 class="h6 mt-4">Já conversaram com {{ ent.rotulo }} nesta gira</h3>
+  <ul class="list-group small">
+    {% for c in atendidos %}
+      <li class="list-group-item d-flex justify-content-between"><span>{{ c.inscricao.pessoa.nome }}</span>
+        <span class="text-muted">{{ c.rotulo_situacao }} · {{ c.encerrado_em|hora }}</span></li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='app.js') }}"></script>{% endblock %}

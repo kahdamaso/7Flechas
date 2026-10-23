@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titulo %}Atendimento {{ g.data|data }}{% endblock %}
+{% block conteudo %}
+{% set etapa = 'atendimento' %}{% include "giras/_nav.html" %}
+{% if linhas_em_terra %}
+<ul class="nav nav-pills flex-nowrap overflow-auto mb-2 filtro-linhas">
+  <li class="nav-item"><a class="nav-link text-nowrap {% if not linha_id %}active{% endif %}" href="{{ url_for('giras.atendimento', id=g.id) }}">Todas</a></li>
+  {% for l in linhas_em_terra %}
+    <li class="nav-item"><a class="nav-link text-nowrap {% if linha_id == l.id %}active{% endif %}" href="{{ url_for('giras.atendimento', id=g.id, linha=l.id) }}">{{ l.nome }}</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+<div id="em-terra" data-atualizar="8">
+  <p class="small text-muted mb-2">O cambone diz a entidade → toque nela.
+    <strong class="text-body">{{ ocupadas }}</strong> atendendo agora · <strong class="text-body">{{ aguardando }}</strong> inscrito(s) aguardando.</p>
+  {% for linha, entidades in por_linha.items() %}
+    <h2 class="h6 mt-3 mb-2">{{ linha.nome }}</h2>
+    <div class="row g-2">
+      {% for e in entidades %}
+        {% set aberta = abertas.get(e.id) %}
+        <div class="col-6 col-lg-4">
+          <a class="card h-100 text-decoration-none cartao-entidade {{ 'ocupada' if aberta else 'livre' }}" href="{{ url_for('giras.entidade', id=g.id, ent_id=e.id) }}">
+            <div class="card-body py-2">
+              <div class="d-flex justify-content-between align-items-start gap-2">
+                <div class="fw-semibold text-body">{{ e.rotulo }}</div>
+                <span class="badge {{ 'text-bg-warning' if aberta else 'text-bg-success' }}">{{ 'atendendo' if aberta else 'livre' }}</span>
+              </div>
+              <div class="small text-muted">{{ e.medium.nome_curto }}{% if cambones.get(e.id) %} · cambone {{ cambones[e.id].nome_curto }}{% endif %} · {{ atendidos.get(e.id, 0) }} atendido(s)</div>
+              {% if aberta %}<div class="small text-body mt-1">com <strong>{{ aberta.inscricao.pessoa.nome }}</strong> desde {{ aberta.chamado_em|hora }}</div>{% endif %}
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-info">Nenhuma entidade em terra. Marque os médiuns presentes na <a href="{{ url_for('giras.chamada', id=g.id) }}">chamada</a>: as entidades da ficha espiritual deles aparecem aqui.</div>
+  {% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='app.js') }}"></script>{% endblock %}

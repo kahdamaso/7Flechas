@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block titulo %}Retornos{% endblock %}
+{% block conteudo %}
+<h1 class="h3 mb-3">Retornos</h1>
+<ul class="nav nav-pills mb-3 flex-nowrap overflow-auto">
+  {% for chave_filtro, rotulo in filtros.items() %}
+    <li class="nav-item"><a class="nav-link text-nowrap {% if chave_filtro == filtro %}active{% endif %}"
+       href="{{ url_for('retornos.lista', filtro=chave_filtro) }}">{{ rotulo }}</a></li>
+  {% endfor %}
+</ul>
+{% set mostrar_pessoa = True %}
+{% include "retornos/_lista.html" %}
+{% endblock %}

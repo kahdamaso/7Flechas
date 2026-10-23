@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block titulo %}Giras{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Giras</h1>
+  <a class="btn btn-success" href="{{ url_for('giras.nova') }}">+ Nova gira</a>
+</div>
+<div class="list-group">
+  {% for g in giras %}
+    <a class="list-group-item list-group-item-action {% if g.data == hoje %}list-group-item-success{% endif %}" href="{{ url_for('giras.painel', id=g.id) }}">
+      <div class="d-flex justify-content-between align-items-center">
+        <div><span class="fw-semibold">{{ g.data|data }}</span> <span class="text-muted small">{{ g.data|dia_semana }}</span>
+          · {{ g.tipo }}{% if g.descricao %} <span class="small text-muted">— {{ g.descricao }}</span>{% endif %}</div>
+        {% if g.encerrada %}<span class="badge text-bg-secondary">encerrada</span>{% elif g.data == hoje %}<span class="badge text-bg-success">hoje</span>{% endif %}
+      </div>
+      <div class="small text-muted">{{ presentes.get(g.id, 0) }} médiuns presentes · {{ inscritos.get(g.id, 0) }} inscritos</div>
+    </a>
+  {% else %}
+    <div class="list-group-item text-muted">Nenhuma gira registrada ainda.</div>
+  {% endfor %}
+</div>
+{% endblock %}

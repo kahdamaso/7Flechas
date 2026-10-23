@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block titulo %}Chamada {{ g.data|data }}{% endblock %}
+{% block conteudo %}
+{% set etapa = 'chamada' %}{% include "giras/_nav.html" %}
+<div id="chamada" data-atualizar="10">
+  <p class="small text-muted mb-2"><strong class="text-body" id="contagem">{{ marcados }}</strong> presentes.
+    Toque em SIM ou NÃO; salva na hora e aparece nos outros aparelhos.</p>
+  {% for categoria, mediuns in grupos if mediuns %}
+    <h2 class="h6 mt-3">{{ {'Corrente': 'Corrente', 'Auxiliar': 'Auxiliares', 'Colaborador': 'Colaboradores'}[categoria] }}
+      <span class="badge text-bg-light border">{{ mediuns|length }}</span></h2>
+    <div class="list-group">
+      {% for m in mediuns %}
+        {% set r = registros.get(m.id) %}
+        {% set estado = ('sim' if r.presente else 'nao') if r else '' %}
+        <div class="list-group-item d-flex justify-content-between align-items-center gap-2 linha-chamada estado-{{ estado or 'vazio' }}" id="p{{ m.id }}">
+          <div class="flex-grow-1">
+            {{ m.nome }}{% if m.apelido %} <small class="text-muted">“{{ m.apelido }}”</small>{% endif %}
+            {% if m.incorpora %}<span class="badge text-bg-light border">incorpora</span>{% endif %}
+          </div>
+          <form method="post" action="{{ url_for('giras.marcar', id=g.id, pessoa_id=m.id) }}" class="d-flex gap-1 form-chamada" data-ajax>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-chamada {{ 'btn-success' if estado == 'sim' else 'btn-outline-success' }}" name="presente" value="{{ '' if estado == 'sim' else 'sim' }}" aria-pressed="{{ 'true' if estado == 'sim' else 'false' }}">SIM</button>
+            <button class="btn btn-chamada {{ 'btn-danger' if estado == 'nao' else 'btn-outline-danger' }}" name="presente" value="{{ '' if estado == 'nao' else 'nao' }}" aria-pressed="{{ 'true' if estado == 'nao' else 'false' }}">NÃO</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  {% if not grupos|selectattr(1)|list %}<p class="text-muted">Nenhum médium ativo cadastrado.</p>{% endif %}
+</div>
+<a class="btn btn-success btn-lg w-100 mt-3" href="{{ url_for('giras.inscricao', id=g.id) }}">Ir para a inscrição →</a>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='app.js') }}"></script>{% endblock %}

@@ -28,3 +28,24 @@ main.container { max-width: 960px; }
   h1.h3 { font-size: 1.4rem; }
   .list-group-item { padding: .75rem .9rem; }
 }
+
+/* gira */
+.etapas .nav-link { padding: .5rem .75rem; }
+.linha-chamada.estado-sim { border-left: 4px solid var(--bs-success); }
+.linha-chamada.estado-nao { border-left: 4px solid var(--bs-danger); }
+.btn-chamada { min-width: 3.6rem; font-weight: 600; }
+form.enviando { opacity: .5; }
+.cartao-entidade.livre { border-left: 4px solid var(--bs-success); }
+.cartao-entidade.ocupada { border-left: 4px solid var(--bs-warning); }
+.tabela-mapa td, .tabela-mapa th { font-size: .82rem; white-space: nowrap; }
+.tabela-mapa .sticky-col { position: sticky; left: 0; background: var(--bs-body-bg); z-index: 1; }
+@media print {
+  nav, .etapas, .barra-acoes, form, .btn { display: none !important; }
+  body { background: #fff; }
+}
+.filtro-linhas .nav-link { padding: .3rem .7rem; font-size: .9rem; }
+@media (max-width: 767.98px) {
+  .etapas .nav-link { padding: .4rem .5rem; font-size: .9rem; }
+  .cartao-entidade .card-body { padding: .5rem .6rem; }
+  .cartao-entidade .fw-semibold { font-size: .95rem; }
+}

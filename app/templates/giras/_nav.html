@@ -1,0 +1,15 @@
+{# cabeçalho e navegação entre as etapas da gira; usa `g` e `etapa` #}
+<div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+  <div>
+    <h1 class="h5 mb-0">{{ g.tipo }} · {{ g.data|data }} <small class="text-muted fw-normal">({{ g.data|dia_semana }})</small></h1>
+    {% if g.descricao %}<div class="small text-muted">{{ g.descricao }}</div>{% endif %}
+  </div>
+  {% if g.encerrada %}<span class="badge text-bg-secondary">encerrada</span>{% endif %}
+</div>
+<ul class="nav nav-pills nav-fill mb-3 etapas flex-nowrap overflow-auto">
+  {% for ep, rotulo in [('painel', 'Resumo'), ('chamada', 'Chamada'), ('inscricao', 'Inscrição'),
+                        ('atendimento', 'Atendimento'), ('mapa', 'Mapa')] %}
+    <li class="nav-item"><a class="nav-link text-nowrap {% if etapa == ep %}active{% endif %}"
+        href="{{ url_for('giras.' ~ ep, id=g.id) }}">{{ rotulo }}</a></li>
+  {% endfor %}
+</ul>

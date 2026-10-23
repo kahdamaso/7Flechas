@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, campo_pessoa, selo_categoria, botao_excluir %}
+{% block titulo %}Inscrição {{ g.data|data }}{% endblock %}
+{% block conteudo %}
+{% set etapa = 'inscricao' %}{% include "giras/_nav.html" %}
+
+<form method="post" class="card card-body mb-3">
+  {{ csrf() }}
+  <label class="form-label fw-semibold" for="pessoa">Quem chegou?</label>
+  <div class="d-flex gap-2">
+    <div class="flex-grow-1">{{ campo_pessoa('pessoa', pessoas, placeholder='Digite o nome e escolha na lista', exigir=True) }}</div>
+    <button class="btn btn-success">Abrir</button>
+  </div>
+  <div class="form-text">Não encontrou? <a href="{{ url_for('pessoas.nova') }}">Faça o cadastro rápido</a> e volte aqui.
+    {% if not g.publica %}<br><strong>Gira de quarta:</strong> só Auxiliares e Corrente.{% endif %}</div>
+</form>
+
+<div id="inscritos" data-atualizar="15">
+  <h2 class="h6">Inscritos <span class="badge text-bg-secondary">{{ inscritos|length }}</span></h2>
+  <div class="list-group">
+    {% for i in inscritos %}
+      {% set aberta = i.conversas|selectattr('situacao', 'equalto', 'chamado')|first %}
+      {% set feitas = i.conversas|rejectattr('situacao', 'equalto', 'chamado')|list %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <a class="fw-semibold" href="{{ url_for('giras.inscrever', id=g.id, pessoa_id=i.pessoa_id) }}">{{ i.pessoa.nome }}</a>
+          {{ selo_categoria(i.categoria) }}
+        </div>
+        <div class="small text-muted">
+          chegou {{ i.chegada|hora }} ·
+          {% if i.todas_linhas %}todas as linhas{% else %}{{ i.linhas|map(attribute='linha.nome')|join(', ') or 'nenhuma linha escolhida' }}{% endif %}
+          · {{ feitas|length }} conversa(s)
+          {% for pedido in i.pedidos if pedido.situacao == 'pendente' %}<span class="badge text-bg-info">7 Flechas: {{ pedido.tipo }}</span>{% endfor %}
+        </div>
+        {% if aberta %}<div class="small text-success">Agora com {{ aberta.entidade.rotulo }}</div>{% endif %}
+      </div>
+    {% else %}
+      <div class="list-group-item text-muted">Ninguém inscrito ainda.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='app.js') }}"></script>{% endblock %}

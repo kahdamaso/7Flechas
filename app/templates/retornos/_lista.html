@@ -1,0 +1,31 @@
+{# lista de retornos; usa `retornos` e, opcionalmente, `mostrar_pessoa` #}
+<div class="list-group">
+  {% for r in retornos %}
+    <div class="list-group-item {% if r.situacao != 'pendente' %}text-muted{% endif %}">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          {% if mostrar_pessoa %}<a class="fw-semibold" href="{{ url_for('pessoas.prontuario', id=r.pessoa.id, aba='retornos') }}">{{ r.pessoa.nome }}</a><br>{% endif %}
+          <span class="fw-semibold">{{ r.entidade.rotulo if r.entidade else 'Entidade removida' }}</span>
+          {% if r.entidade %}<span class="small text-muted">({{ r.entidade.linha.nome }} · {{ r.entidade.medium.nome_curto }})</span>{% endif %}
+          <div class="small">
+            Previsto para <strong class="{% if r.atrasado %}text-danger{% endif %}">{{ r.data_prevista|data }}</strong>
+            {% if r.atrasado %}<span class="badge text-bg-danger">atrasado</span>{% endif %}
+            {% if r.cambone %} · cambone {{ r.cambone.nome_curto }}{% endif %}
+          </div>
+          {% if r.observacao %}<div class="small fst-italic">{{ r.observacao }}</div>{% endif %}
+        </div>
+        <span class="badge {{ {'pendente': 'text-bg-warning', 'concluido': 'text-bg-success', 'cancelado': 'text-bg-secondary'}[r.situacao] }}">{{ r.situacao }}</span>
+      </div>
+      <div class="mt-2 d-flex gap-2 flex-wrap">
+        {% for valor, rotulo in ([('concluido', 'Marcar concluído'), ('cancelado', 'Cancelar')] if r.situacao == 'pendente' else [('pendente', 'Reabrir')]) %}
+          <form method="post" action="{{ url_for('retornos.mudar_situacao', id=r.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-secondary" name="situacao" value="{{ valor }}">{{ rotulo }}</button>
+          </form>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="list-group-item text-muted">Nenhum retorno.</div>
+  {% endfor %}
+</div>

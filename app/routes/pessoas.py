@@ -9,11 +9,14 @@ from ..models import (
     CATEGORIAS,
     FUNCOES,
     Entidade,
+    Gira,
     HistoricoCategoria,
+    Inscricao,
     Linha,
     Parentesco,
     Pessoa,
     PessoaFuncao,
+    Retorno,
 )
 from ..utils import chave, nome_proprio, normalizar_cpf, normalizar_telefone, somente_digitos
 from .forms import campo, campo_data, campo_int, responsavel, versao_confere
@@ -67,8 +70,13 @@ def prontuario(id):
     p = db.get_or_404(Pessoa, id)
     linhas = Linha.query.order_by(Linha.ordem).all()
     parentes = sorted(Parentesco.de(p), key=lambda laco: laco.outra(p).nome)
+    retornos = Retorno.query.filter_by(pessoa_id=p.id).order_by(
+        (Retorno.situacao != "pendente"), Retorno.data_prevista.desc()).all()
+    inscricoes = (Inscricao.query.filter_by(pessoa_id=p.id).join(Gira)
+                  .order_by(Gira.data.desc()).all())
     return render_template(
         "pessoas/prontuario.html", p=p, linhas=linhas, parentes=parentes,
+        retornos=retornos, inscricoes=inscricoes,
         categorias=CATEGORIAS, tipos_parentesco=TIPOS_PARENTESCO,
         pessoas=_todas_pessoas(), aba=request.args.get("aba", "dados"),
         hoje=date.today().isoformat(),
