@@ -1,0 +1,6 @@
+Nome;CPF;Data de Nascimento;Telefone;Cidade;UF;Obs
+;;;;;;
+MARIA DE TESTE SOUZA;123.456.789-09;05/03/1980;(31) 98888-7777;BELO HORIZONTE;mg;
+João Exemplo;1234567890;31/02/1990;+55 31 3333-4444;Contagem;MG;primeira visita
+CPF Ruim da Silva;111.111.111-11;;;Betim;MG;
+maria de teste souza;;;;;;voltou

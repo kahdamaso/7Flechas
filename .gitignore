@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+instance/
+*.db
+*.sqlite3
+# Dados reais (contêm dados pessoais: nomes, CPF, telefones) — não versionar
+data/*
+!data/.gitkeep
