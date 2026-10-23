@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from ..models import GRUPOS_MEDIUM, Entidade, Linha, Medium, MediumEntidade, Presenca, Sessao
 from ..utils import chave, normalizar_telefone
-from .forms import campo
+from .forms import campo, versao_confere
 
 bp = Blueprint("mediuns", __name__, url_prefix="/mediuns")
 
@@ -47,6 +47,8 @@ def detalhe(id):
 
 
 def _salvar(medium):
+    if not versao_confere(medium):
+        return False
     nome = campo("nome")
     if not nome:
         flash("Informe o nome.", "danger")

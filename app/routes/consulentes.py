@@ -3,7 +3,7 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 from ..extensions import db
 from ..models import Atendimento, Consulente, Sessao
 from ..utils import chave, normalizar_cpf, normalizar_telefone, somente_digitos
-from .forms import campo, campo_data
+from .forms import campo, campo_data, versao_confere
 
 bp = Blueprint("consulentes", __name__, url_prefix="/consulentes")
 
@@ -89,6 +89,8 @@ def novo():
 def editar(id):
     c = db.get_or_404(Consulente, id)
     if request.method == "POST":
+        if not versao_confere(c):
+            return render_template("consulentes/form.html", c=c, titulo=f"Editar {c.nome}", form={})
         if _salvar(c):
             flash("Consulente atualizado.", "success")
             return redirect(url_for(".detalhe", id=c.id))

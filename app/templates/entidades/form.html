@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf %}
+{% from "_macros.html" import csrf, versao %}
 {% block titulo %}{{ titulo }}{% endblock %}
 {% block conteudo %}
 <h1 class="h3 mb-3">{{ titulo }}</h1>
 <form method="post" class="row g-3" style="max-width: 40rem">
-  {{ csrf() }}
+  {{ csrf() }}{{ versao(ent) }}
   <div class="col-md-7"><label class="form-label">Nome *</label>
     <input class="form-control" name="nome" required value="{{ ent.nome or '' }}"></div>
   <div class="col-md-5"><label class="form-label">Linha *</label>

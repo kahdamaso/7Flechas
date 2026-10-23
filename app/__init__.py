@@ -1,4 +1,5 @@
-from flask import Flask
+from flask import Flask, flash, redirect, request
+from sqlalchemy.orm.exc import StaleDataError
 
 from .config import BASE_DIR, Config
 from .extensions import csrf, db
@@ -14,10 +15,18 @@ def create_app(config_class=Config):
     csrf.init_app(app)
 
     from . import models  # noqa: F401  (registra as tabelas)
-    from .routes import consulentes, entidades, main, mediuns, sessoes
+    from .routes import auth, consulentes, entidades, main, mediuns, sessoes
 
-    for bp in (main.bp, mediuns.bp, consulentes.bp, entidades.bp, sessoes.bp):
+    for bp in (auth.bp, main.bp, mediuns.bp, consulentes.bp, entidades.bp, sessoes.bp):
         app.register_blueprint(bp)
+
+    @app.errorhandler(StaleDataError)
+    def _conflito(_erro):
+        # dois aparelhos salvaram o mesmo registro quase no mesmo instante
+        db.session.rollback()
+        flash("Outro aparelho salvou este registro agora há pouco. Confira os dados "
+              "atualizados e salve de novo se precisar.", "warning")
+        return redirect(request.url)
 
     app.jinja_env.filters["cpf"] = formatar_cpf
     app.jinja_env.filters["telefone"] = formatar_telefone

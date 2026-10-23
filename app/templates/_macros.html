@@ -8,3 +8,8 @@
 {% macro csrf() -%}
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
+
+{# versão do registro quando o formulário foi aberto: detecta edição simultânea #}
+{% macro versao(obj) -%}
+{% if obj.id %}<input type="hidden" name="versao" value="{{ obj.versao }}">{% endif %}
+{%- endmacro %}

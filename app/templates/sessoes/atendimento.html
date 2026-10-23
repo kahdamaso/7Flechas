@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf, botao_excluir %}
+{% from "_macros.html" import csrf, versao, botao_excluir %}
 {% block titulo %}{{ titulo }}{% endblock %}
 {% block conteudo %}
 <h1 class="h3 mb-1">{{ titulo }}</h1>
 <p class="text-muted"><a href="{{ url_for('sessoes.detalhe', id=sessao.id) }}">{{ sessao.tipo }} — {{ sessao.data|data }}</a></p>
 
 <form method="post">
-  {{ csrf() }}
+  {{ csrf() }}{{ versao(at) }}
   <div class="row g-3">
     <div class="col-md-3"><label class="form-label">Categoria</label>
       <select class="form-select" name="categoria" id="categoria">

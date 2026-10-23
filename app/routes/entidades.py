@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models import Entidade, Linha, Manifestacao
-from .forms import campo, campo_int
+from .forms import campo, campo_int, versao_confere
 
 bp = Blueprint("entidades", __name__, url_prefix="/entidades")
 
@@ -20,6 +20,8 @@ def lista():
 
 
 def _salvar(ent):
+    if not versao_confere(ent):
+        return False
     nome, linha_id = campo("nome"), campo_int("linha_id")
     if not nome or not db.session.get(Linha, linha_id or 0):
         flash("Informe o nome e a linha.", "danger")

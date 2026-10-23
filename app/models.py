@@ -14,9 +14,17 @@ Visão geral
                      com parentesco/retorno — equivale a uma linha da planilha.
 - ``Manifestacao``   cada célula preenchida das colunas de linha: qual entidade
                      (e/ou médium de qual entidade) atendeu naquela linha.
+- ``Usuario``        quem pode entrar no sistema.
+
+Uso simultâneo: os registros editáveis têm a coluna ``versao`` (controle
+otimista do SQLAlchemy). Se dois aparelhos abrem o mesmo cadastro e ambos
+salvam, o segundo é avisado em vez de apagar sem perceber o que o primeiro fez.
 """
 
 from datetime import datetime
+
+from sqlalchemy.orm import declared_attr
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from .extensions import db
 from .utils import chave
@@ -31,7 +39,18 @@ class TimestampMixin:
     )
 
 
-class Medium(TimestampMixin, db.Model):
+class VersaoMixin:
+    """Incrementa ``versao`` a cada UPDATE; o UPDATE falha (StaleDataError) se
+    outro aparelho tiver salvo uma versão mais nova nesse meio-tempo."""
+
+    versao = db.Column(db.Integer, nullable=False, default=1)
+
+    @declared_attr.directive
+    def __mapper_args__(cls):
+        return {"version_id_col": cls.versao}
+
+
+class Medium(VersaoMixin, TimestampMixin, db.Model):
     __tablename__ = "mediuns"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -63,7 +82,7 @@ class Medium(TimestampMixin, db.Model):
         return f"<Medium {self.nome}>"
 
 
-class Consulente(TimestampMixin, db.Model):
+class Consulente(VersaoMixin, TimestampMixin, db.Model):
     __tablename__ = "consulentes"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -108,7 +127,7 @@ class Linha(db.Model):
         return f"<Linha {self.nome}>"
 
 
-class Entidade(db.Model):
+class Entidade(VersaoMixin, db.Model):
     __tablename__ = "entidades"
     __table_args__ = (db.UniqueConstraint("linha_id", "nome_chave"),)
 
@@ -148,7 +167,7 @@ class MediumEntidade(db.Model):
     entidade = db.relationship("Entidade", back_populates="mediuns")
 
 
-class Sessao(TimestampMixin, db.Model):
+class Sessao(VersaoMixin, TimestampMixin, db.Model):
     __tablename__ = "sessoes"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -193,13 +212,19 @@ class Presenca(db.Model):
 CATEGORIAS_ATENDIMENTO = ["Corrente", "Auxiliar", "Colaborador", "Consulente"]
 
 
-class Atendimento(TimestampMixin, db.Model):
+class Atendimento(VersaoMixin, TimestampMixin, db.Model):
     __tablename__ = "atendimentos"
     __table_args__ = (
         db.CheckConstraint(
             "(consulente_id IS NULL) <> (medium_id IS NULL)",
             name="ck_atendimento_uma_pessoa",
         ),
+        # uma pessoa tem no máximo um atendimento por sessão: evita que dois
+        # aparelhos registrem o mesmo consulente ao mesmo tempo
+        db.Index("ux_atendimento_consulente", "sessao_id", "consulente_id", unique=True,
+                 sqlite_where=db.text("consulente_id IS NOT NULL")),
+        db.Index("ux_atendimento_medium", "sessao_id", "medium_id", unique=True,
+                 sqlite_where=db.text("medium_id IS NOT NULL")),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -213,8 +238,10 @@ class Atendimento(TimestampMixin, db.Model):
     parentesco = db.Column(db.String(150))
     retorno = db.Column(db.String(150))
     observacoes = db.Column(db.Text)
+    atualizado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id", ondelete="SET NULL"))
 
     sessao = db.relationship("Sessao", back_populates="atendimentos")
+    atualizado_por = db.relationship("Usuario")
     consulente = db.relationship("Consulente", back_populates="atendimentos")
     medium = db.relationship("Medium", foreign_keys=[medium_id], back_populates="atendimentos")
     manifestacoes = db.relationship(
@@ -267,6 +294,28 @@ class Manifestacao(db.Model):
         if not partes:
             partes.append(self.descricao or "")
         return " ".join(partes)
+
+
+class Usuario(db.Model):
+    __tablename__ = "usuarios"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(100), nullable=False)
+    login = db.Column(db.String(60), nullable=False, unique=True)
+    senha_hash = db.Column(db.String(255), nullable=False)
+    admin = db.Column(db.Boolean, nullable=False, default=False)
+    ativo = db.Column(db.Boolean, nullable=False, default=True)
+    criado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    @db.validates("login")
+    def _normalizar_login(self, _key, login):
+        return login.strip().lower()
+
+    def definir_senha(self, senha):
+        self.senha_hash = generate_password_hash(senha)
+
+    def confere_senha(self, senha):
+        return check_password_hash(self.senha_hash, senha)
 
 
 # Linhas padrão, na ordem das colunas das planilhas.

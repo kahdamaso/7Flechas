@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block titulo %}Usuário{% endblock %}
+{% block conteudo %}
+<div style="max-width: 26rem">
+  <h1 class="h4">{{ 'Editar ' ~ u.nome if u.id else 'Novo usuário' }}</h1>
+  <form method="post">
+    {{ csrf() }}
+    {% include "auth/_campos_usuario.html" %}
+    {% if u.id != g.usuario.id %}
+    <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="admin" id="admin" {% if u.admin %}checked{% endif %}>
+      <label class="form-check-label" for="admin">Administrador (pode gerenciar usuários)</label></div>
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="ativo" id="ativo" {% if u.ativo %}checked{% endif %}>
+      <label class="form-check-label" for="ativo">Pode entrar no sistema</label></div>
+    {% endif %}
+    <button class="btn btn-success">Salvar</button>
+    <a class="btn btn-link" href="{{ url_for('auth.usuarios') }}">Voltar</a>
+  </form>
+</div>
+{% endblock %}

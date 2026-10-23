@@ -27,3 +27,19 @@ def campo_int(nome):
         return int(texto) if texto else None
     except ValueError:
         return None
+
+
+def versao_confere(obj):
+    """Compara a versão enviada pelo formulário com a do banco.
+
+    Se outro aparelho salvou o registro depois que este formulário foi aberto,
+    devolve False e avisa; a tela é exibida de novo com os dados atuais.
+    """
+    from flask import flash
+
+    enviada = campo_int("versao")
+    if obj.id is None or enviada is None or enviada == obj.versao:
+        return True
+    flash("Este registro foi alterado em outro aparelho enquanto você editava. "
+          "Os dados abaixo já são os mais recentes: confira e salve de novo.", "warning")
+    return False

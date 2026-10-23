@@ -8,9 +8,19 @@ csrf = CSRFProtect()
 
 
 @event.listens_for(Engine, "connect")
-def _sqlite_foreign_keys(dbapi_connection, _record):
-    """SQLite só respeita ON DELETE CASCADE com foreign_keys ligado."""
+def _configurar_sqlite(dbapi_connection, _record):
+    """Ajustes do SQLite para uso por vários aparelhos ao mesmo tempo.
+
+    - foreign_keys: respeitar ON DELETE CASCADE;
+    - WAL: leituras não bloqueiam a escrita (celulares consultando enquanto
+      outro aparelho salva);
+    - busy_timeout: em vez de falhar com "database is locked", espera até 5 s
+      a escrita concorrente terminar.
+    """
     if dbapi_connection.__class__.__module__.startswith("sqlite3"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()

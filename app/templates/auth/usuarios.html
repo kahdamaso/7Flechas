@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Usuários{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Usuários</h1>
+  <a class="btn btn-success" href="{{ url_for('auth.editar_usuario') }}">+ Novo</a>
+</div>
+<div class="list-group">
+  {% for u in usuarios %}
+    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if not u.ativo %}text-muted{% endif %}"
+       href="{{ url_for('auth.editar_usuario', id=u.id) }}">
+      <span>{{ u.nome }} <small class="text-muted">@{{ u.login }}</small></span>
+      <span>{% if u.admin %}<span class="badge text-bg-success">admin</span>{% endif %}
+            {% if not u.ativo %}<span class="badge text-bg-secondary">bloqueado</span>{% endif %}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endblock %}

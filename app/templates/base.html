@@ -2,20 +2,29 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#198754">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="TUC7FJ">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block titulo %}TUC7FJ{% endblock %} · TUC7FJ</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="icon" href="{{ url_for('static', filename='icone.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icone-192.png') }}">
   <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
 </head>
 <body>
-<nav class="navbar navbar-expand-md navbar-dark bg-success mb-4">
+<nav class="navbar navbar-expand-md navbar-dark bg-success mb-3 sticky-top">
   <div class="container">
     <a class="navbar-brand fw-semibold" href="{{ url_for('main.index') }}">TUC7FJ</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menu">
+    {% if g.usuario %}
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menu" aria-label="Menu">
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="menu">
-      <ul class="navbar-nav">
+      <ul class="navbar-nav me-auto">
         {% for ep, rotulo in [('sessoes.lista','Sessões'), ('mediuns.lista','Médiuns'),
                               ('consulentes.lista','Consulentes'), ('entidades.lista','Entidades')] %}
           <li class="nav-item">
@@ -24,20 +33,35 @@
           </li>
         {% endfor %}
       </ul>
+      <ul class="navbar-nav">
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">{{ g.usuario.nome }}</a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('auth.minha_senha') }}">Trocar senha</a></li>
+            {% if g.usuario.admin %}<li><a class="dropdown-item" href="{{ url_for('auth.usuarios') }}">Usuários</a></li>{% endif %}
+            <li><hr class="dropdown-divider"></li>
+            <li><form method="post" action="{{ url_for('auth.logout') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="dropdown-item">Sair</button></form></li>
+          </ul>
+        </li>
+      </ul>
     </div>
+    {% endif %}
   </div>
 </nav>
 <main class="container pb-5">
   {% with mensagens = get_flashed_messages(with_categories=true) %}
     {% for categoria, msg in mensagens %}
       <div class="alert alert-{{ categoria if categoria != 'message' else 'info' }} alert-dismissible fade show">
-        {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fechar"></button>
       </div>
     {% endfor %}
   {% endwith %}
   {% block conteudo %}{% endblock %}
 </main>
 <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

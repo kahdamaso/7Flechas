@@ -542,28 +542,34 @@ def importar_sessao(caminho, cad, rel, substituir=False):
         registros.append((n, linha, bloco, pessoa))
 
     # 2ª passada: atendimentos e manifestações
+    ja_lancados = {}  # pessoa -> atendimento (a mesma pessoa pode aparecer 2x na planilha)
     for n, linha, bloco, pessoa in registros:
-        pessoa_kw = {"consulente": pessoa} if isinstance(pessoa, Consulente) else {"medium": pessoa}
-        at = Atendimento(
-            sessao=sessao,
-            categoria=bloco["categoria"],
-            parentesco=valor(_celula(linha, bloco["col_parentesco"])),  # texto livre: mantido
-            retorno=corrigir(_celula(linha, bloco["col_retorno"])),
-            **pessoa_kw,
-        )
-        db.session.add(at)
+        retorno = corrigir(_celula(linha, bloco["col_retorno"]))
+        parentesco = valor(_celula(linha, bloco["col_parentesco"]))  # texto livre: mantido
+        at = ja_lancados.get(pessoa)
+        if at is None:
+            pessoa_kw = {"consulente": pessoa} if isinstance(pessoa, Consulente) else {"medium": pessoa}
+            at = Atendimento(sessao=sessao, categoria=bloco["categoria"], parentesco=parentesco,
+                             retorno=retorno, **pessoa_kw)
+            db.session.add(at)
+            ja_lancados[pessoa] = at
+            rel.conta("atendimentos")
+        else:
+            rel.aviso(caminho, f"linha {n}: {pessoa.nome} aparece mais de uma vez; linhas juntadas.")
+            at.retorno = at.retorno or retorno
+            at.parentesco = at.parentesco or parentesco
         if isinstance(pessoa, Medium):
             cad.presenca(sessao, pessoa)
+        linhas_usadas = {m.linha.nome for m in at.manifestacoes}
         for i, nome_linha in bloco["colunas"].items():
             texto = valor(_celula(linha, i))
-            if texto:
+            if texto and nome_linha not in linhas_usadas:
                 manif = _resolver_manifestacao(texto, cad.linhas[nome_linha], cad, rel, caminho)
                 at.manifestacoes.append(manif)
                 rel.conta("manifestações")
                 if manif.medium_responsavel:
                     cad.presenca(sessao, manif.medium_responsavel)
         db.session.flush()
-        rel.conta("atendimentos")
 
 
 def importar_presenca(caminho, cad, rel, ano_padrao=None):
