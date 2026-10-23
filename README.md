@@ -3,6 +3,8 @@
 Aplicação web para a secretaria do terreiro, que substitui as planilhas. Funciona no celular, no
 tablet e no computador, e vários aparelhos podem usá-la ao mesmo tempo.
 
+> **Para instalar e testar na casa, veja o [INSTALAR.md](INSTALAR.md)** (passo a passo, sem programação).
+
 **Stack:** Python 3.11+ · Flask · SQLAlchemy · SQLite · Bootstrap 5, servido localmente (funciona sem internet).
 
 ## Fases
