@@ -153,3 +153,20 @@ def test_busca(client):
     _cadastrar(client, "José da Silva", cpf="529.982.247-25", telefone="37988776655")
     for termo in ["jose", "JOSÉ", "529982", "88776"]:
         assert "José da Silva" in client.get(f"/pessoas/?q={termo}").get_data(as_text=True), termo
+
+
+def test_ip_real_atras_de_proxy(anonimo, app):
+    """Com ATRAS_DE_PROXY, o bloqueio por senha errada vale por aparelho, não para todos."""
+    from werkzeug.middleware.proxy_fix import ProxyFix
+
+    from app.models import definir_senha_casa
+
+    definir_senha_casa(SENHA)
+    db.session.commit()
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+    for _ in range(5):
+        anonimo.post("/entrar", data={"senha": "x"}, headers={"X-Forwarded-For": "10.0.0.1"})
+    bloqueado = anonimo.post("/entrar", data={"senha": SENHA}, headers={"X-Forwarded-For": "10.0.0.1"})
+    assert "Muitas tentativas" in bloqueado.get_data(as_text=True)
+    outro = anonimo.post("/entrar", data={"senha": SENHA}, headers={"X-Forwarded-For": "10.0.0.2"})
+    assert "/responsavel" in outro.headers["Location"]

@@ -37,6 +37,9 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get("COOKIE_SEGURO") == "1"
     # o token CSRF acompanha a sessão (formulário aberto por horas no tablet não expira)
     WTF_CSRF_TIME_LIMIT = None
+    # ligue (ATRAS_DE_PROXY=1) em hospedagens que repassam o acesso por um proxy,
+    # para o sistema enxergar o IP real de cada aparelho (bloqueio de senha errada)
+    ATRAS_DE_PROXY = os.environ.get("ATRAS_DE_PROXY") == "1"
 
 
 class TestConfig(Config):
