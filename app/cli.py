@@ -1,5 +1,6 @@
 import click
 
+from .backup import fazer_backup
 from .extensions import db
 from .importacao import importar
 from .models import definir_senha_casa, garantir_linhas_padrao
@@ -33,3 +34,9 @@ def registrar_comandos(app):
         """Importa os cadastros da planilha (.xlsx baixado do Drive ou pasta com CSVs)."""
         relatorio = importar(caminho)
         click.echo(relatorio.texto())
+
+    @app.cli.command("backup")
+    def backup():
+        """Faz uma cópia de segurança do banco em instance/backups/."""
+        arquivo = fazer_backup(app.config["SQLALCHEMY_DATABASE_URI"])
+        click.echo(f"Cópia criada: {arquivo}" if arquivo else "Banco não encontrado.")

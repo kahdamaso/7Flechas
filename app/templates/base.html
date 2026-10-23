@@ -26,7 +26,8 @@
     <div class="collapse navbar-collapse" id="menu">
       <ul class="navbar-nav me-auto">
         {% for ep, rotulo in [('main.index','Painel'), ('giras.lista','Giras'), ('pessoas.lista','Pessoas'),
-                              ('retornos.lista','Retornos'), ('entidades.lista','Entidades')] %}
+                              ('retornos.lista','Retornos'), ('entidades.lista','Entidades'),
+                              ('relatorios.index','Relatórios')] %}
           <li class="nav-item">
             <a class="nav-link {% if request.endpoint and request.endpoint.split('.')[0] == ep.split('.')[0] %}active{% endif %}"
                href="{{ url_for(ep) }}">{{ rotulo }}</a>

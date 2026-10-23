@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titulo %}Relatórios{% endblock %}
+{% block conteudo %}
+<h1 class="h3 mb-3">Relatórios</h1>
+<div class="list-group">
+  {% for ep, titulo, texto in [
+      ('relatorios.frequencia', 'Frequência dos médiuns', 'Presenças e faltas na chamada de cada gira, atendimentos das entidades e vezes como cambone.'),
+      ('relatorios.retornos', 'Retornos', 'Quantos retornos foram pedidos, concluídos e cancelados; quais entidades mais pedem retorno.'),
+      ('relatorios.giras', 'Giras e atendimentos', 'Movimento de cada gira, atendimentos por entidade e por linha, e quem veio pela primeira vez.')] %}
+    <a class="list-group-item list-group-item-action py-3" href="{{ url_for(ep, de=de.isoformat(), ate=ate.isoformat()) }}">
+      <div class="fw-semibold">{{ titulo }}</div><div class="small text-muted">{{ texto }}</div></a>
+  {% endfor %}
+</div>
+<p class="small text-muted mt-3">Todos os relatórios podem ser baixados como planilha (CSV, abre no Excel e no Google Planilhas).</p>
+{% endblock %}

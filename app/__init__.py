@@ -15,9 +15,10 @@ def create_app(config_class=Config):
     csrf.init_app(app)
 
     from . import models
-    from .routes import acesso, entidades, giras, main, pessoas, retornos
+    from .routes import acesso, entidades, giras, main, pessoas, relatorios, retornos
 
-    for bp in (acesso.bp, main.bp, pessoas.bp, entidades.bp, giras.bp, retornos.bp):
+    for bp in (acesso.bp, main.bp, pessoas.bp, entidades.bp, giras.bp, retornos.bp,
+               relatorios.bp):
         app.register_blueprint(bp)
 
     @app.errorhandler(StaleDataError)

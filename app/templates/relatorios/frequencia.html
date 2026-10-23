@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import selo_categoria %}
+{% block titulo %}Frequência{% endblock %}
+{% block conteudo %}
+<a class="small" href="{{ url_for('relatorios.index') }}">← relatórios</a>
+<h1 class="h3 mb-3">Frequência dos médiuns</h1>
+{% set extra_filtros %}
+  <div class="col-12 col-md-2"><label class="form-label small mb-1" for="categoria">Categoria</label>
+    <select class="form-select" id="categoria" name="categoria">
+      <option value="">Todas</option>
+      {% for c in categorias %}<option {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select></div>
+{% endset %}
+{% include "relatorios/_periodo.html" %}
+
+{% if not dados.giras %}
+  <div class="alert alert-info">Nenhuma gira com chamada registrada neste período.</div>
+{% else %}
+<p class="small">{{ dados.giras|length }} gira(s) com chamada. A frequência considera só as giras em que o médium foi marcado (SIM ou NÃO);
+  colaboradores contam só nas giras públicas. Ordenado da menor para a maior frequência.</p>
+<div class="table-responsive">
+<table class="table table-sm bg-body align-middle">
+  <thead class="table-light"><tr>
+    <th>Médium</th><th class="text-end">Freq.</th><th class="text-end">Pres.</th><th class="text-end">Faltas</th>
+    <th class="text-end d-none d-md-table-cell">Sem reg.</th><th class="text-end d-none d-md-table-cell">Atend.</th><th class="text-end d-none d-md-table-cell">Cambone</th>
+  </tr></thead>
+  <tbody>
+    {% for l in dados.linhas %}
+      <tr>
+        <td><a href="{{ url_for('pessoas.prontuario', id=l.pessoa.id) }}">{{ l.pessoa.nome }}</a> {{ selo_categoria(l.pessoa.categoria) }}
+          {% if l.sem_registro %}<div class="small text-muted d-md-none">{{ l.sem_registro }} gira(s) sem marcação</div>{% endif %}</td>
+        <td class="text-end fw-semibold {% if l.percentual is not none and l.percentual < 50 %}text-danger{% endif %}">
+          {{ (l.percentual ~ '%') if l.percentual is not none else '—' }}</td>
+        <td class="text-end">{{ l.presentes }}/{{ l.marcadas }}</td>
+        <td class="text-end">{{ l.faltas }}</td>
+        <td class="text-end d-none d-md-table-cell">{{ l.sem_registro }}</td>
+        <td class="text-end d-none d-md-table-cell">{{ l.atendimentos }}</td>
+        <td class="text-end d-none d-md-table-cell">{{ l.cambonou }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

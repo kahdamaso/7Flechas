@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import selo_categoria %}
+{% block titulo %}Giras e atendimentos{% endblock %}
+{% block conteudo %}
+<a class="small" href="{{ url_for('relatorios.index') }}">← relatórios</a>
+<h1 class="h3 mb-3">Giras e atendimentos</h1>
+{% include "relatorios/_periodo.html" %}
+<div class="row g-2 mb-3">
+  {% for rotulo, valor in [('giras', dados.total_giras), ('pessoas atendidas', dados.pessoas_atendidas),
+                           ('inscrições', dados.inscricoes), ('conversas com entidades', dados.conversas),
+                           ('vieram pela 1ª vez', dados.novos|length)] %}
+    <div class="col-6 col-md"><div class="card text-center h-100"><div class="card-body py-2">
+      <div class="fs-4 fw-semibold">{{ valor }}</div><div class="small text-muted">{{ rotulo }}</div></div></div></div>
+  {% endfor %}
+</div>
+{% if dados.categorias %}
+<p class="small">Inscrições por categoria:
+  {% for c, n in dados.categorias.most_common() %}{{ selo_categoria(c) }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+
+<h2 class="h6">Por gira</h2>
+<div class="table-responsive">
+<table class="table table-sm bg-body">
+  <thead class="table-light"><tr><th>Gira</th><th class="text-end">Médiuns</th><th class="text-end">Inscritos</th>
+    <th class="text-end">Conversas</th><th class="text-end d-none d-md-table-cell">Recusas</th><th class="text-end">Retornos</th></tr></thead>
+  <tbody>
+    {% for i in dados.por_gira %}
+      <tr><td><a href="{{ url_for('giras.painel', id=i.gira.id) }}">{{ i.gira.data|data }}</a> <span class="small text-muted">{{ i.gira.tipo }}</span></td>
+        <td class="text-end">{{ i.presentes }}</td><td class="text-end">{{ i.inscritos }}</td>
+        <td class="text-end">{{ i.atendidos }}</td><td class="text-end d-none d-md-table-cell">{{ i.recusas }}</td><td class="text-end">{{ i.retornos }}</td></tr>
+    {% else %}<tr><td colspan="6" class="text-muted">Nenhuma gira no período.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-7">
+    <h2 class="h6">Conversas por entidade</h2>
+    <table class="table table-sm bg-body">
+      {% for e, n in dados.por_entidade %}
+        <tr><td>{{ e.rotulo }} <span class="small text-muted">· {{ e.linha.nome }} · {{ e.medium.nome_curto }}</span></td><td class="text-end">{{ n }}</td></tr>
+      {% else %}<tr><td class="text-muted">Sem conversas no período.</td></tr>{% endfor %}
+    </table>
+  </div>
+  <div class="col-md-5">
+    <h2 class="h6">Conversas por linha</h2>
+    <table class="table table-sm bg-body">
+      {% for linha, n in dados.por_linha %}<tr><td>{{ linha }}</td><td class="text-end">{{ n }}</td></tr>
+      {% else %}<tr><td class="text-muted">—</td></tr>{% endfor %}
+    </table>
+  </div>
+</div>
+
+{% if dados.novos %}
+<h2 class="h6">Vieram pela primeira vez</h2>
+<ul class="list-group mb-3">
+  {% for i in dados.novos %}
+    <li class="list-group-item d-flex justify-content-between"><a href="{{ url_for('pessoas.prontuario', id=i.pessoa.id) }}">{{ i.pessoa.nome }}</a>
+      <span class="small text-muted">{{ i.gira.data|data }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

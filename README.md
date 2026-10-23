@@ -11,7 +11,7 @@ tablet e no computador, e vários aparelhos podem usá-la ao mesmo tempo.
 |---|---|---|
 | 1 | Pessoas e trajetória (Consulente → Colaborador → Auxiliar → Corrente), funções (Cambone, Ogã), parentescos, ficha espiritual, importação dos cadastros | **pronta** |
 | 2 | Gira: chamada (SIM/NÃO), inscrição, atendimento puxado pelo cambone por entidade, retornos e prontuário | **pronta** |
-| 3 | Relatórios: frequência dos médiuns, retornos, histórico | depois |
+| 3 | Relatórios: frequência dos médiuns, retornos, giras e atendimentos (com planilha CSV); cópias de segurança | **pronta** |
 | Futuro | Inscrição online e perfis de acesso | — |
 
 ## Regras de negócio da Fase 1
@@ -70,6 +70,37 @@ atualizam sozinhas a cada poucos segundos. O banco garante que:
 - uma pessoa conversa com uma entidade por vez.
 
 Se dois aparelhos chamarem ao mesmo tempo, o segundo recebe um aviso.
+
+## Relatórios (Fase 3)
+
+O menu **Relatórios** tem três relatórios. Cada um tem filtro de período (o padrão são os últimos
+90 dias) e o botão **Planilha (CSV)**, que abre direto no Excel e no Google Planilhas.
+
+- **Frequência dos médiuns:**
+  - presenças e faltas na chamada;
+  - percentual calculado só sobre as giras em que a pessoa foi marcada;
+  - quantas pessoas as entidades de cada médium atenderam;
+  - quantas vezes cada um foi cambone.
+
+  Colaboradores só contam nas giras públicas. A lista começa por quem tem a menor frequência.
+- **Retornos:**
+  - pedidos, concluídos e cancelados, com a taxa de conclusão;
+  - pendentes e atrasados hoje;
+  - ranking das entidades que mais pedem retorno.
+- **Giras e atendimentos:**
+  - movimento de cada gira;
+  - conversas por entidade e por linha;
+  - inscrições por categoria;
+  - quem veio pela primeira vez.
+
+## Cópias de segurança
+
+- `python servidor.py` faz uma cópia do banco ao iniciar e a cada 6 horas, em `instance/backups/`.
+  São guardadas as 30 mais recentes.
+- Para fazer uma cópia na hora: `flask --app run backup`.
+- Para restaurar, pare o sistema e copie o arquivo desejado por cima de `instance/tuc7fj.db`.
+- **Guarde cópias também fora do computador.** Por exemplo, copie periodicamente a pasta
+  `instance/backups/` para um pendrive ou para o Google Drive.
 
 ## Acesso
 
