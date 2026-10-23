@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf %}
-{% block titulo %}Trocar senha{% endblock %}
+{% block titulo %}Senha da casa{% endblock %}
 {% block conteudo %}
-<div style="max-width: 24rem">
-  <h1 class="h4">Trocar senha</h1>
+<div class="caixa-acesso">
+  <h1 class="h4">Trocar a senha da casa</h1>
   <form method="post">
     {{ csrf() }}
     <div class="mb-3"><label class="form-label">Senha atual</label>

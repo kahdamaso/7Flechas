@@ -1,29 +1,45 @@
 {% extends "base.html" %}
-{% block titulo %}Início{% endblock %}
+{% from "_macros.html" import selo_categoria %}
+{% block titulo %}Painel{% endblock %}
 {% block conteudo %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
   <h1 class="h3 mb-0">Painel</h1>
-  <a class="btn btn-success" href="{{ url_for('sessoes.nova') }}">+ Nova sessão / gira</a>
+  <a class="btn btn-success btn-lg" href="{{ url_for('pessoas.nova') }}">+ Cadastro rápido</a>
 </div>
-<div class="row g-3 mb-4">
-  {% for rotulo, n in totais.items() %}
-    <div class="col-6 col-md">
-      <div class="card text-center h-100"><div class="card-body">
-        <div class="fs-3 fw-semibold">{{ n }}</div><div class="text-muted small">{{ rotulo }}</div>
-      </div></div>
+
+<div class="card mb-3 border-success-subtle">
+  <div class="card-body">
+    <h2 class="h6 text-muted mb-1">Próxima gira</h2>
+    <p class="mb-0 text-muted small">O registro das giras (chamada, inscrições, atendimentos e retornos) chega na Fase 2.</p>
+  </div>
+</div>
+
+<div class="row g-2 mb-4">
+  {% for categoria, n in totais %}
+    <div class="col-6 col-md-3">
+      <a class="card text-center h-100 text-decoration-none" href="{{ url_for('pessoas.lista', categoria=categoria) }}">
+        <div class="card-body py-3">
+          <div class="fs-3 fw-semibold text-body">{{ n }}</div>
+          {{ selo_categoria(categoria) }}
+        </div>
+      </a>
     </div>
   {% endfor %}
+  <div class="col-6 col-md-3"><div class="card text-center h-100"><div class="card-body py-3">
+    <div class="fs-3 fw-semibold">{{ incorporam }}</div><div class="text-muted small">médiuns que incorporam</div></div></div></div>
+  <div class="col-6 col-md-3"><a class="card text-center h-100 text-decoration-none" href="{{ url_for('entidades.lista') }}"><div class="card-body py-3">
+    <div class="fs-3 fw-semibold text-body">{{ entidades }}</div><div class="text-muted small">entidades cadastradas</div></div></a></div>
 </div>
-<h2 class="h5">Últimas sessões</h2>
+
+<h2 class="h6">Últimos cadastros</h2>
 <div class="list-group">
-  {% for s, n in ultimas %}
-    <a class="list-group-item list-group-item-action d-flex justify-content-between"
-       href="{{ url_for('sessoes.detalhe', id=s.id) }}">
-      <span>{{ s.data|data }} — {{ s.tipo }}{% if s.descricao %} · {{ s.descricao }}{% endif %}</span>
-      <span class="badge text-bg-secondary">{{ n }} atendimentos</span>
+  {% for p in recentes %}
+    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+       href="{{ url_for('pessoas.prontuario', id=p.id) }}">
+      <span>{{ p.nome }}</span>{{ selo_categoria(p.categoria) }}
     </a>
   {% else %}
-    <div class="list-group-item text-muted">Nenhuma sessão registrada ainda.</div>
+    <div class="list-group-item text-muted">Nenhum cadastro ainda.</div>
   {% endfor %}
 </div>
 {% endblock %}

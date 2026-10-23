@@ -2,26 +2,20 @@ from flask import Blueprint, render_template
 from sqlalchemy import func
 
 from ..extensions import db
-from ..models import Atendimento, Consulente, Entidade, Medium, Sessao
+from ..models import CATEGORIAS, Entidade, Pessoa
 
 bp = Blueprint("main", __name__)
 
 
 @bp.route("/")
 def index():
-    totais = {
-        "Médiuns ativos": Medium.query.filter_by(ativo=True).count(),
-        "Consulentes": Consulente.query.count(),
-        "Entidades": Entidade.query.count(),
-        "Sessões": Sessao.query.count(),
-        "Atendimentos": Atendimento.query.count(),
-    }
-    ultimas = (
-        db.session.query(Sessao, func.count(Atendimento.id))
-        .outerjoin(Atendimento)
-        .group_by(Sessao.id)
-        .order_by(Sessao.data.desc())
-        .limit(5)
-        .all()
+    por_categoria = dict(
+        db.session.query(Pessoa.categoria, func.count(Pessoa.id))
+        .filter(Pessoa.ativo.is_(True)).group_by(Pessoa.categoria).all()
     )
-    return render_template("index.html", totais=totais, ultimas=ultimas)
+    totais = [(c, por_categoria.get(c, 0)) for c in CATEGORIAS]
+    incorporam = Pessoa.query.filter_by(ativo=True, incorpora=True).count()
+    entidades = Entidade.query.filter_by(ativa=True).count()
+    recentes = Pessoa.query.order_by(Pessoa.criado_em.desc()).limit(5).all()
+    return render_template("index.html", totais=totais, incorporam=incorporam,
+                           entidades=entidades, recentes=recentes)

@@ -1,120 +1,160 @@
-from datetime import date
+"""Importação dos cadastros com uma planilha FICTÍCIA no mesmo formato da real."""
+
+import openpyxl
+import pytest
 
 from app.importacao import importar
-from app.models import (
-    Atendimento,
-    Consulente,
-    Entidade,
-    Medium,
-    Presenca,
-    Sessao,
-)
+from app.models import Entidade, HistoricoCategoria, Parentesco, Pessoa
 from app.utils import normalizar_cpf
 
-from .conftest import FIXTURES
+
+@pytest.fixture
+def planilha(tmp_path):
+    livro = openpyxl.Workbook()
+    livro.remove(livro.active)
+
+    presenca = livro.create_sheet("PRESENÇA")
+    presenca.append(["MEDIUNS", "CATOGORIA", "PRESENTE"])
+    for linha in [
+        ["Igor Teste Silva", "Corrente", "SIM"],
+        ["Káh Exemplo Souza", "Corrente", "NÃO"],
+        ["Thiago Soares Costa", "Corrente", "SIM"],
+        ["Thiago Soares Cecilio", "Corrente", "SIM"],
+        ["Railany Ficticia Vieira", "Corrente", "SIM"],
+        ["Maria Nunes Campos Ribeiro", "Corrente", "SIM"],
+        ["Mylene Teste Melo", "Corrente", "SIM"],
+        ["Ana Auxiliar", "Auxiliar", "NÃO"],
+        ["Bia Colaboradora", "Colaborador", "SIM"],
+    ]:
+        presenca.append(linha)
+
+    retorno = livro.create_sheet("RETORNO MEDIUNS")
+    retorno.append(["MEDIUNS", "Tipo", "RETORNO"])
+    retorno.append(["Ana Auxiliar", "Corrente", ""])  # diverge da PRESENÇA
+    retorno.append(["Novo Membro", "Auxiliar", ""])
+
+    ficha = livro.create_sheet("Cópia de GUIA")
+    ficha.append(["Mediun", "Caboclo", "Preto Velhos", "Exu", "Pombo Gira", "Cangaço"])
+    ficha.append(["Igor Teste Silva", "7 Flechas", "Pai João", "7 catacumbas", None, "Cangaceiro"])
+    # mesma pessoa com as palavras do nome em outra ordem
+    ficha.append(["Thiago Costa Soares", "Sutão da Matas", None, "Ze Caveira / Tiriri", None, None])
+    ficha.append(["Pessoa Sem Categoria", "Jurema", None, None, None, None])
+
+    guia = livro.create_sheet("GUIA")
+    guia.append(["Caboclo", "Preto Velhos", "Exu"])
+    guia.append(["7Flechas", "Pai Jacó", "Tiriri"])  # nomes de entidades: ignorados
+    guia.append(["Pai Igor", "Mãe Ralainy", "Thiago DV"])
+    guia.append(["Mylene", "GERAL", "Pai Káh"])
+
+    consulente = livro.create_sheet("CONSULENTE")
+    consulente.append(["CONSULENTE", "CPF", "PARENTESCO", "CIDADE", "PERTENCE ALGUMA CASA? QUAL",
+                       "COMO FICOU SABENDO", "TELEFONE"])
+    consulente.append(["JOAO EXEMPLO", "529.982.247-25", "MARIA NUNES", "BO DESPACHO", "NÃO",
+                       "INSTAGRAM", 37998887777.0])
+    consulente.append(["CARLA FICTICIA", 1234567890.0, "PAI KAH, MILENE", "Nova Serrana", "OASIS",
+                       None, None])
+    consulente.append(["PEDRO CRIANCA", "CRIANÇA", "THIAGO", "0.0", "SIM", None, None])
+    consulente.append(["Igor Teste Silva", None, "NÃO", "Bom Despacho", None, None, None])
+
+    caminho = tmp_path / "TUC7FJ.xlsx"
+    livro.save(caminho)
+    return caminho
 
 
-def _manifestacoes(nome):
-    at = next(a for a in Atendimento.query.all() if a.pessoa_nome == nome)
-    return {m.linha.nome: m for m in at.manifestacoes}
+def _pessoa(nome):
+    return Pessoa.query.filter_by(nome=nome).one()
 
 
 def test_normalizar_cpf():
-    assert normalizar_cpf("123.456.789-09") == "12345678909"
+    assert normalizar_cpf("529.982.247-25") == "52998224725"
     assert normalizar_cpf("1234567890") == "01234567890"  # zero à esquerda perdido no Excel
     assert normalizar_cpf("111.111.111-11") is None
-    assert normalizar_cpf("abc") is None
+    assert normalizar_cpf("CRIANÇA") is None
 
 
-def test_importa_consulentes(app):
-    rel = importar([FIXTURES / "TUC7FJ_CONSULENTE.csv"])
-    maria = Consulente.query.filter_by(cpf="12345678909").one()
-    assert maria.nome == "Maria de Teste Souza"
-    assert maria.cidade == "Belo Horizonte" and maria.uf == "MG"
-    assert maria.data_nascimento == date(1980, 3, 5)
-    assert maria.telefone == "31988887777"
-    assert maria.observacoes == "voltou"  # linha duplicada completou o cadastro
-    joao = Consulente.query.filter_by(nome="João Exemplo").one()  # arquivo em cp1252
-    assert joao.cpf == "01234567890" and joao.telefone == "3133334444"
-    assert joao.data_nascimento is None
-    assert Consulente.query.filter_by(nome="CPF Ruim da Silva").one().cpf is None
-    assert Consulente.query.count() == 3
-    assert any("CPF inválido" in a for a in rel.avisos)
-    assert any("31/02/1990" in a for a in rel.avisos)
+def test_categorias_e_historico(app, planilha):
+    rel = importar(planilha)
+    assert _pessoa("Igor Teste Silva").categoria == "Corrente"
+    # PRESENÇA prevalece sobre RETORNO MEDIUNS, e a divergência é relatada
+    assert _pessoa("Ana Auxiliar").categoria == "Auxiliar"
+    assert any("Ana Auxiliar" in i for i in rel.pendencias["Categorias divergentes entre abas (mantida a primeira)"])
+    assert _pessoa("Novo Membro").categoria == "Auxiliar"
+    assert _pessoa("Bia Colaboradora").categoria == "Colaborador"
+    h = HistoricoCategoria.query.filter_by(pessoa_id=_pessoa("Igor Teste Silva").id).one()
+    assert h.de is None and h.para == "Corrente"
 
 
-def test_importa_retorno_mediuns(app):
-    importar([FIXTURES / "TUC7FJ_RETORNO_MEDIUNS.csv"])
-    ana = Medium.query.filter_by(nome="Ana Ficticia Lima").one()
-    assert sorted(v.entidade.nome for v in ana.entidades) == [
-        "Maria Padilha", "Pai Joaquim", "Pena Branca", "Tranca Rua"
-    ]
-    bruno = Medium.query.filter_by(nome="Bruno Exemplo Rocha").one()
-    assert sorted(v.entidade.nome for v in bruno.entidades) == ["Marabô", "Pena Verde", "Ubirajara"]
-    carla = Medium.query.filter_by(nome="Carla Modelo").one()
-    assert carla.grupo == "Auxiliar"
-    assert [v.entidade.nome for v in carla.entidades] == ["Cigana Rosa"]  # "x" ignorado
+def test_ficha_espiritual(app, planilha):
+    rel = importar(planilha)
+    igor = _pessoa("Igor Teste Silva")
+    ficha = {(e.linha.nome, e.nome) for e in igor.entidades}
+    assert ficha == {("Caboclo", "7 Flechas"), ("Preto Velho", "Pai João"),
+                     ("Exu", "7 catacumbas"), ("Cangaço", "Cangaceiro")}
+    assert igor.incorpora
+    thiago = _pessoa("Thiago Soares Costa")  # 'Thiago Costa Soares' na ficha
+    assert {e.nome for e in thiago.entidades} == {"Sultão das Matas", "Zé Caveira", "Tiriri"}
+    assert Pessoa.query.filter(Pessoa.nome.like("Thiago%")).count() == 2
+    assert _pessoa("Pessoa Sem Categoria").categoria == "Corrente"
+    assert "Pessoa Sem Categoria" in rel.pendencias[
+        "Médiuns da ficha sem categoria em outra aba (cadastrados como Corrente)"]
 
 
-def test_importacao_completa(app):
-    rel = importar([FIXTURES])
-    sessao = Sessao.query.filter_by(data=date(2026, 8, 2)).one()
-    assert len(sessao.atendimentos) == 5
-
-    # célula com nome do médium ('Ana') -> médium + a entidade dele naquela linha
-    m = _manifestacoes("Bruno Teste Dias")["Exu"]
-    assert m.medium_responsavel.nome == "Ana Ficticia Lima"
-    assert m.entidade.nome == "Tranca Rua"
-
-    # célula com nome da entidade -> entidade + único médium que a trabalha
-    m = _manifestacoes("Davi Colaborador")
-    assert m["Caboclo"].entidade.nome == "Pena Branca"
-    assert m["Caboclo"].medium_responsavel.nome == "Ana Ficticia Lima"
-    # 'Bruno' é ambíguo (dois médiuns): mantém só o texto
-    assert m["Exu"].entidade is None and m["Exu"].medium_responsavel is None
-    assert m["Exu"].descricao == "Bruno"
-    assert any("'Bruno'" in a for a in rel.avisos)
-
-    maria = _manifestacoes("Maria de Teste Souza")
-    assert maria["Caboclo"].entidade.nome == "Sultão das Matas"  # correção de digitação
-    assert maria["Preto Velho"].geral is True
-    assert maria["Exu"].entidade.nome == "Zé Caveira"
-    assert maria["Pombo Gira"].entidade.nome == "Maria Quitéria"
-    # consulente da sessão é o mesmo do cadastro, não um duplicado
-    assert Consulente.query.filter_by(nome_chave="maria de teste souza").count() == 1
-
-    nova = Atendimento.query.join(Consulente).filter(Consulente.nome == "Pessoa Nova").one()
-    assert nova.parentesco == "CRIANÇA VAI COM MARIA"
-    assert _manifestacoes("Pessoa Nova")["Caboclo"].medium_responsavel.nome == "Bruno Exemplo Rocha"
-
-    ana_at = _manifestacoes("Ana Ficticia Lima")
-    assert ana_at["7 Flechas"].descricao == "Orientação Espiritual"
-    assert Atendimento.query.filter_by(medium_id=Medium.query.filter_by(
-        nome="Bruno Teste Dias").one().id).one().retorno == "Tranca Rua"
+def test_apelidos(app, planilha):
+    rel = importar(planilha)
+    assert _pessoa("Igor Teste Silva").apelido == "Pai Igor"
+    assert _pessoa("Káh Exemplo Souza").apelido == "Pai Káh"
+    assert _pessoa("Railany Ficticia Vieira").apelido == "Mãe Ralainy"  # grafia parecida
+    # só o primeiro nome: marca que incorpora, sem virar apelido
+    mylene = _pessoa("Mylene Teste Melo")
+    assert mylene.incorpora and mylene.apelido is None
+    # dois Thiagos: fica para conferir; 'Pai Jacó' é entidade, não apelido
+    pendentes = rel.pendencias["Apelidos não identificados (preencha o apelido no cadastro do médium)"]
+    assert pendentes == ["Thiago DV"]
 
 
-def test_presenca(app):
-    rel = importar([FIXTURES])
-    bruno_e = Medium.query.filter_by(nome="Bruno Exemplo Rocha").one()
-    s1 = Sessao.query.filter_by(data=date(2026, 8, 2)).one()
-    s2 = Sessao.query.filter_by(data=date(2026, 8, 16)).one()
-    # planilha de presença prevalece sobre a presença deduzida da sessão
-    assert Presenca.query.filter_by(sessao=s1, medium=bruno_e).one().presente is False
-    p = Presenca.query.filter_by(sessao=s2, medium=bruno_e).one()
-    assert p.presente is False and p.justificativa == "Falta justificada"
-    davi = Medium.query.filter_by(nome="Davi Colaborador").one()
-    assert davi.grupo == "Colaborador"
-    assert Presenca.query.filter_by(sessao=s1, medium=davi).one().presente
-    assert any("'?'" in a for a in rel.avisos)
+def test_consulentes_e_parentescos(app, planilha):
+    rel = importar(planilha)
+    joao = _pessoa("Joao Exemplo")
+    assert joao.categoria == "Consulente"
+    assert joao.cpf == "52998224725" and joao.telefone == "37998887777"
+    assert joao.cidade == "Bom Despacho" and joao.outra_casa is None and joao.como_soube == "INSTAGRAM"
+    maria = _pessoa("Maria Nunes Campos Ribeiro")
+    assert Parentesco.entre(joao.id, maria.id) is not None
+
+    carla = _pessoa("Carla Ficticia")
+    assert carla.cpf == "01234567890" and carla.outra_casa == "OASIS"
+    assert Parentesco.entre(carla.id, _pessoa("Káh Exemplo Souza").id)
+    assert Parentesco.entre(carla.id, _pessoa("Mylene Teste Melo").id)  # 'MILENE'
+    assert any("Mylene" in i for i in rel.pendencias["Parentescos vinculados por grafia parecida (confira)"])
+    assert carla.parentesco_informado == "PAI KAH, MILENE"
+
+    pedro = _pessoa("Pedro Crianca")
+    assert pedro.cpf is None and "CRIANÇA" in pedro.observacoes
+    assert pedro.cidade is None and pedro.outra_casa == "Sim (não informou qual)"
+    assert any("'thiago'" in i for i in rel.pendencias["Parentescos não identificados (cadastre no prontuário)"])
+
+    # médium que também está na aba CONSULENTE não vira um segundo cadastro
+    assert Pessoa.query.filter_by(nome="Igor Teste Silva").count() == 1
+    assert _pessoa("Igor Teste Silva").categoria == "Corrente"
 
 
-def test_reimportacao_idempotente(app):
-    importar([FIXTURES])
-    totais = (Consulente.query.count(), Medium.query.count(), Entidade.query.count(),
-              Atendimento.query.count())
-    rel = importar([FIXTURES])
-    assert any("já tem atendimentos" in a for a in rel.avisos)
-    assert totais == (Consulente.query.count(), Medium.query.count(), Entidade.query.count(),
-                      Atendimento.query.count())
-    importar([FIXTURES], substituir=True)
-    assert Atendimento.query.count() == totais[3]
+def test_reimportacao_nao_duplica(app, planilha):
+    importar(planilha)
+    totais = (Pessoa.query.count(), Entidade.query.count(), Parentesco.query.count(),
+              HistoricoCategoria.query.count())
+    importar(planilha)
+    assert totais == (Pessoa.query.count(), Entidade.query.count(), Parentesco.query.count(),
+                      HistoricoCategoria.query.count())
+
+
+def test_reimportacao_preserva_o_que_foi_digitado(app, planilha):
+    from app.extensions import db
+
+    importar(planilha)
+    joao = _pessoa("Joao Exemplo")
+    joao.cidade = "Divinópolis"
+    joao.mudar_categoria("Colaborador")
+    db.session.commit()
+    importar(planilha)
+    joao = _pessoa("Joao Exemplo")
+    assert joao.cidade == "Divinópolis" and joao.categoria == "Colaborador"

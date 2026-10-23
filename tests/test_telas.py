@@ -1,121 +1,155 @@
 from datetime import date
 
-import pytest
+from app.extensions import db
+from app.models import Entidade, Linha, Parentesco, Pessoa
+from app.utils import chave
 
-from app.importacao import importar
-from app.models import Atendimento, Consulente, Entidade, Linha, Medium, Presenca, Sessao
-
-from .conftest import FIXTURES
-
-
-@pytest.fixture
-def dados(app):
-    importar([FIXTURES])
+from .conftest import SENHA, recarregar
 
 
-def test_todas_as_telas_abrem(client, dados):
-    sessao = Sessao.query.filter_by(data=date(2026, 8, 2)).one()
-    medium = Medium.query.first()
-    consulente = Consulente.query.first()
-    entidade = Entidade.query.first()
-    at = sessao.atendimentos[0]
-    urls = [
-        "/", "/mediuns/", "/mediuns/?situacao=todos&grupo=Corrente&q=ana", "/mediuns/novo",
-        f"/mediuns/{medium.id}", f"/mediuns/{medium.id}/editar",
-        "/consulentes/", "/consulentes/?q=123", "/consulentes/novo",
-        f"/consulentes/{consulente.id}", f"/consulentes/{consulente.id}/editar",
-        "/entidades/", "/entidades/nova", f"/entidades/{entidade.id}/editar",
-        "/sessoes/", "/sessoes/nova", f"/sessoes/{sessao.id}", f"/sessoes/{sessao.id}/editar",
-        f"/sessoes/{sessao.id}/presenca", f"/sessoes/{sessao.id}/atendimentos/novo",
-        f"/sessoes/{sessao.id}/atendimentos/{at.id}/editar",
-    ]
-    for url in urls:
-        resp = client.get(url)
-        assert resp.status_code == 200, url
-    assert "Sultão das Matas" in client.get(f"/sessoes/{sessao.id}").get_data(as_text=True)
+def _cadastrar(client, nome, categoria="Consulente", **extra):
+    dados = {"nome": nome, "categoria": categoria, **extra}
+    resp = client.post("/pessoas/nova", data=dados)
+    return resp, Pessoa.query.filter_by(nome_chave=chave(nome)).order_by(Pessoa.id.desc()).first()
 
 
-def test_crud_consulente(client, app):
-    resp = client.post("/consulentes/novo", data={"nome": "Fulano Teste", "cpf": "529.982.247-25",
-                                                   "telefone": "31 99999-0000", "cidade": "Betim"})
-    assert resp.status_code == 302
-    c = Consulente.query.filter_by(nome="Fulano Teste").one()
-    assert c.cpf == "52998224725" and c.telefone == "31999990000"
-
-    # CPF duplicado é recusado
-    resp = client.post("/consulentes/novo", data={"nome": "Outro", "cpf": "52998224725"})
-    assert resp.status_code == 200 and "CPF já cadastrado" in resp.get_data(as_text=True)
-
-    client.post(f"/consulentes/{c.id}/editar", data={"nome": "Fulano Editado", "cpf": ""})
-    assert db_get(Consulente, c.id).nome == "Fulano Editado"
-    client.post(f"/consulentes/{c.id}/excluir")
-    assert db_get(Consulente, c.id) is None
+# --- acesso -----------------------------------------------------------------
 
 
-def test_crud_medium_com_entidades(client, app):
-    caboclo = Linha.query.filter_by(nome="Caboclo").one()
-    client.post("/entidades/nova", data={"nome": "Pena Dourada", "linha_id": caboclo.id})
-    ent = Entidade.query.filter_by(nome="Pena Dourada").one()
-    client.post("/mediuns/novo", data={"nome": "Médium Novo", "grupo": "Auxiliar", "ativo": "on",
-                                       "entidades": [str(ent.id)]})
-    m = Medium.query.filter_by(nome="Médium Novo").one()
-    assert m.grupo == "Auxiliar" and [v.entidade.nome for v in m.entidades] == ["Pena Dourada"]
-
-    client.post(f"/mediuns/{m.id}/editar", data={"nome": "Médium Novo", "grupo": "Corrente"})
-    m = db_get(Medium, m.id)
-    assert m.entidades == [] and m.ativo is False
-    client.post(f"/mediuns/{m.id}/excluir")
-    assert db_get(Medium, m.id) is None
+def test_primeiro_uso_define_senha_e_pede_responsavel(anonimo):
+    assert anonimo.get("/").headers["Location"].endswith("/configurar")
+    resp = anonimo.post("/configurar", data={"senha": "abc", "senha2": "abc"})
+    assert "pelo menos 6" in resp.get_data(as_text=True)
+    resp = anonimo.post("/configurar", data={"senha": "segredo1", "senha2": "segredo1"})
+    assert "/responsavel" in resp.headers["Location"]
+    assert "/responsavel" in anonimo.get("/").headers["Location"]
+    anonimo.post("/responsavel", data={"responsavel": "Ana"})
+    pagina = anonimo.get("/").get_data(as_text=True)
+    assert "Responsável: <strong>Ana</strong>" in pagina
 
 
-def test_fluxo_sessao_presenca_atendimento(client, app):
-    a = Medium(nome="Médium A", grupo="Corrente")
-    b = Medium(nome="Médium B", grupo="Corrente")
-    exu = Linha.query.filter_by(nome="Exu").one()
-    tranca = Entidade(nome="Tranca Rua", linha=exu)
-    from app.extensions import db
-    db.session.add_all([a, b, tranca])
+def test_senha_errada_e_bloqueio(client, app):
+    outro = app.test_client()
+    assert "/entrar" in outro.get("/pessoas/").headers["Location"]
+    for _ in range(5):
+        assert "Senha incorreta" in outro.post("/entrar", data={"senha": "x"}).get_data(as_text=True)
+    resp = outro.post("/entrar", data={"senha": SENHA})
+    assert "Muitas tentativas" in resp.get_data(as_text=True)
+
+
+def test_redirecionamento_externo_bloqueado(app, client):
+    resp = client.post("/responsavel?proximo=//evil.com", data={"responsavel": "X"})
+    assert resp.headers["Location"] == "/"
+
+
+def test_responsavel_vale_so_no_dia(client):
+    with client.session_transaction() as s:
+        s["responsavel_dia"] = "2000-01-01"
+    assert "/responsavel" in client.get("/").headers["Location"]
+
+
+# --- telas ------------------------------------------------------------------
+
+
+def test_telas_abrem(client):
+    _, p = _cadastrar(client, "Fulano de Tal", "Corrente")
+    ent = Entidade(medium=p, linha=Linha.query.first(), nome="Juruá")
+    db.session.add(ent)
     db.session.commit()
-
-    resp = client.post("/sessoes/nova", data={"data": "2026-10-23", "tipo": "Gira de Exu"})
-    sessao = Sessao.query.filter_by(data=date(2026, 10, 23)).one()
-    assert resp.headers["Location"].endswith(f"/sessoes/{sessao.id}/presenca")
-
-    client.post(f"/sessoes/{sessao.id}/presenca", data={
-        f"status_{a.id}": "presente", f"status_{b.id}": "falta", f"just_{b.id}": "Doente"})
-    pres = {p.medium.nome: p for p in Presenca.query.filter_by(sessao_id=sessao.id)}
-    assert pres["Médium A"].presente and not pres["Médium B"].presente
-    assert pres["Médium B"].justificativa == "Doente"
-
-    # consulente novo digitado pelo nome é cadastrado na hora
-    client.post(f"/sessoes/{sessao.id}/atendimentos/novo", data={
-        "categoria": "Consulente", "consulente": "Visitante Novo", "retorno": "Tranca Rua",
-        f"ent_{exu.id}": str(tranca.id), f"med_{exu.id}": str(a.id),
-    })
-    at = Atendimento.query.filter_by(sessao_id=sessao.id).one()
-    assert at.consulente.nome == "Visitante Novo" and at.retorno == "Tranca Rua"
-    [man] = at.manifestacoes
-    assert man.entidade.nome == "Tranca Rua" and man.medium_responsavel.nome == "Médium A"
-
-    # edição: troca para "Geral" e seleciona o consulente existente pelo "(#id)"
-    client.post(f"/sessoes/{sessao.id}/atendimentos/{at.id}/editar", data={
-        "categoria": "Consulente", "consulente": f"Visitante Novo (#{at.consulente_id})",
-        f"ent_{exu.id}": "geral",
-    })
-    at = db_get(Atendimento, at.id)
-    assert Consulente.query.filter_by(nome="Visitante Novo").count() == 1
-    assert at.manifestacoes[0].geral and at.manifestacoes[0].medium_responsavel is None
-
-    # atendimento sem pessoa é recusado
-    resp = client.post(f"/sessoes/{sessao.id}/atendimentos/novo", data={"categoria": "Corrente"})
-    assert resp.status_code == 200
-    assert Atendimento.query.filter_by(sessao_id=sessao.id).count() == 1
-
-    client.post(f"/sessoes/{sessao.id}/excluir")
-    assert Atendimento.query.count() == 0 and Presenca.query.count() == 0
+    for url in ["/", "/pessoas/", "/pessoas/?q=fulano&categoria=mediuns&situacao=todos",
+                "/pessoas/nova", f"/pessoas/{p.id}", f"/pessoas/{p.id}?aba=ficha",
+                f"/pessoas/{p.id}/editar", "/entidades/", "/entidades/?q=jur",
+                f"/entidades/{ent.id}/editar", "/senha", "/responsavel"]:
+        assert client.get(url).status_code == 200, url
 
 
-def db_get(modelo, id):
-    from app.extensions import db
-    db.session.expire_all()
-    return db.session.get(modelo, id)
+# --- pessoas ----------------------------------------------------------------
+
+
+def test_cadastro_rapido(client):
+    resp, p = _cadastrar(client, "MARIA DE TESTE", cpf="529.982.247-25", telefone="(37) 99999-1111",
+                         cidade="bom despacho", outra_casa="Oásis")
+    assert resp.status_code == 302
+    assert p.nome == "Maria de Teste" and p.cpf == "52998224725" and p.telefone == "37999991111"
+    assert p.outra_casa == "Oásis" and p.atualizado_por == "Secretaria"
+    assert [(h.de, h.para) for h in p.historico] == [(None, "Consulente")]
+
+    # CPF repetido é recusado
+    resp, _ = _cadastrar(client, "Outra Pessoa", cpf="52998224725")
+    assert "já está cadastrado para Maria de Teste" in resp.get_data(as_text=True)
+    # nome repetido pede confirmação
+    resp, _ = _cadastrar(client, "Maria de Teste")
+    assert "Já existe" in resp.get_data(as_text=True)
+    assert Pessoa.query.filter_by(nome="Maria de Teste").count() == 1
+    _cadastrar(client, "Maria de Teste", confirmar_homonimo="on")
+    assert Pessoa.query.filter_by(nome="Maria de Teste").count() == 2
+
+
+def test_cadastro_com_parente(client):
+    _, medium = _cadastrar(client, "Jurema Medium", "Corrente")
+    _, p = _cadastrar(client, "Namorado Teste", parente=f"Jurema Medium (#{medium.id})",
+                      tipo_parentesco="Cônjuge/Namorado(a)")
+    laco = Parentesco.entre(p.id, medium.id)
+    assert laco.tipo == "Cônjuge/Namorado(a)" and laco.registrado_por == "Secretaria"
+    pagina = client.get(f"/pessoas/{p.id}").get_data(as_text=True)
+    assert "Parentes na casa" in pagina and "Jurema" in pagina
+
+
+def test_editar_funcoes_e_conflito_de_versao(client):
+    _, p = _cadastrar(client, "Cambone Teste", "Auxiliar")
+    versao = p.versao
+    client.post(f"/pessoas/{p.id}/editar", data={
+        "versao": versao, "nome": "Cambone Teste", "apelido": "Cambi", "funcoes": ["Cambone", "Ogã"],
+        "ativo": "on"})
+    p = recarregar(Pessoa, p.id)
+    assert p.apelido == "Cambi" and p.nomes_funcoes == ["Cambone", "Ogã"] and not p.incorpora
+
+    # outro aparelho envia o formulário aberto antes da alteração acima
+    resp = client.post(f"/pessoas/{p.id}/editar", data={
+        "versao": versao, "nome": "Nome Antigo", "ativo": "on"})
+    assert "alterado em outro aparelho" in resp.get_data(as_text=True)
+    assert recarregar(Pessoa, p.id).nome == "Cambone Teste"
+
+
+def test_mudar_categoria_registra_historico(client):
+    _, p = _cadastrar(client, "Em Evolucao")
+    hoje = date.today().isoformat()
+    client.post(f"/pessoas/{p.id}/categoria", data={
+        "categoria": "Colaborador", "data": hoje, "observacao": "Convite do Sete Flechas"})
+    client.post(f"/pessoas/{p.id}/categoria", data={"categoria": "Auxiliar"})
+    p = recarregar(Pessoa, p.id)
+    assert p.categoria == "Auxiliar"
+    assert [(h.de, h.para) for h in p.historico] == [
+        ("Colaborador", "Auxiliar"), ("Consulente", "Colaborador"), (None, "Consulente")]
+    assert p.historico[1].data == date.today()
+    assert p.historico[1].observacao == "Convite do Sete Flechas"
+
+
+def test_parentes_e_ficha(client):
+    _, a = _cadastrar(client, "Pessoa A", "Corrente")
+    _, b = _cadastrar(client, "Pessoa B")
+    client.post(f"/pessoas/{b.id}/parentes", data={"parente": f"Pessoa A (#{a.id})", "tipo": "Irmão(ã)"})
+    client.post(f"/pessoas/{a.id}/parentes", data={"parente": f"Pessoa B (#{b.id})"})  # repetido
+    assert Parentesco.query.count() == 1
+    laco = Parentesco.entre(a.id, b.id)
+    client.post(f"/pessoas/{a.id}/parentes/{laco.id}/excluir")
+    assert Parentesco.query.count() == 0
+
+    exu = Linha.query.filter_by(nome="Exu").one()
+    client.post(f"/pessoas/{a.id}/entidades", data={"linha_id": exu.id, "nome": ""})
+    client.post(f"/pessoas/{a.id}/entidades", data={"linha_id": exu.id, "nome": "Tranca Rua"})
+    a = recarregar(Pessoa, a.id)
+    assert a.incorpora
+    assert sorted(e.rotulo for e in a.entidades) == ["Exu de Pessoa", "Tranca Rua"]
+    sem_nome = next(e for e in a.entidades if not e.nome)
+    client.post(f"/entidades/{sem_nome.id}/editar", data={
+        "versao": sem_nome.versao, "linha_id": exu.id, "nome": "Marabô", "ativa": "on"})
+    assert recarregar(Entidade, sem_nome.id).rotulo == "Marabô"
+    client.post(f"/entidades/{sem_nome.id}/excluir")
+    assert Entidade.query.count() == 1
+
+
+def test_busca(client):
+    _cadastrar(client, "José da Silva", cpf="529.982.247-25", telefone="37988776655")
+    for termo in ["jose", "JOSÉ", "529982", "88776"]:
+        assert "José da Silva" in client.get(f"/pessoas/?q={termo}").get_data(as_text=True), termo

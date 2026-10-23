@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, versao, botao_excluir, selo_categoria, campo_pessoa %}
+{% block titulo %}{{ p.nome }}{% endblock %}
+{% block conteudo %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+  <div>
+    <h1 class="h4 mb-1">{{ p.nome }}{% if p.apelido %} <small class="text-muted">“{{ p.apelido }}”</small>{% endif %}</h1>
+    {{ selo_categoria(p.categoria) }}
+    {% for f in p.nomes_funcoes %}<span class="badge text-bg-light border">{{ f }}</span>{% endfor %}
+    {% if p.incorpora %}<span class="badge text-bg-light border">incorpora</span>{% endif %}
+    {% if not p.ativo %}<span class="badge text-bg-secondary">inativo</span>{% endif %}
+  </div>
+  <a class="btn btn-outline-primary" href="{{ url_for('pessoas.editar', id=p.id) }}">Editar</a>
+</div>
+
+{% if parentes %}
+<div class="alert alert-warning py-2 small mb-3">
+  <strong>Parentes na casa:</strong>
+  {% for laco in parentes %}{% set o = laco.outra(p) %}{{ o.nome_curto }} ({{ laco.tipo|lower }}){% if not loop.last %}, {% endif %}{% endfor %}
+  — parentes não conversam com as entidades uns dos outros.
+</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3 flex-nowrap overflow-auto" role="tablist">
+  {% for chave_aba, rotulo in [('dados','Dados'), ('ficha','Ficha espiritual'), ('parentes','Parentes'), ('historico','Histórico')] %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link text-nowrap {% if aba == chave_aba %}active{% endif %}" data-bs-toggle="tab"
+              data-bs-target="#aba-{{ chave_aba }}" type="button" role="tab">{{ rotulo }}
+        {% if chave_aba == 'ficha' and p.entidades %}<span class="badge text-bg-secondary">{{ p.entidades|length }}</span>{% endif %}
+        {% if chave_aba == 'parentes' and parentes %}<span class="badge text-bg-warning">{{ parentes|length }}</span>{% endif %}
+      </button>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content">
+  {# ------------------------------------------------------------- Dados #}
+  <div class="tab-pane fade {% if aba == 'dados' %}show active{% endif %}" id="aba-dados" role="tabpanel">
+    <dl class="row mb-0 dados">
+      <dt class="col-5 col-md-3">CPF</dt><dd class="col-7 col-md-9">{{ p.cpf|cpf or '—' }}</dd>
+      <dt class="col-5 col-md-3">Telefone</dt><dd class="col-7 col-md-9">
+        {% if p.telefone %}<a href="tel:{{ p.telefone }}">{{ p.telefone|telefone }}</a>{% else %}—{% endif %}</dd>
+      <dt class="col-5 col-md-3">Cidade</dt><dd class="col-7 col-md-9">{{ p.cidade or '—' }}</dd>
+      <dt class="col-5 col-md-3">Nascimento</dt><dd class="col-7 col-md-9">{{ p.data_nascimento|data or '—' }}</dd>
+      <dt class="col-5 col-md-3">Outra casa</dt><dd class="col-7 col-md-9">{{ p.outra_casa or 'Não' }}</dd>
+      <dt class="col-5 col-md-3">Como soube</dt><dd class="col-7 col-md-9">{{ p.como_soube or '—' }}</dd>
+      {% if p.observacoes %}<dt class="col-5 col-md-3">Observações</dt><dd class="col-7 col-md-9" style="white-space: pre-line">{{ p.observacoes }}</dd>{% endif %}
+    </dl>
+    <p class="text-muted small mt-3 mb-0">Última alteração: {{ p.atualizado_em.strftime('%d/%m/%Y %H:%M') }}{% if p.atualizado_por %} por {{ p.atualizado_por }}{% endif %}</p>
+  </div>
+
+  {# ------------------------------------------------------------- Ficha espiritual #}
+  <div class="tab-pane fade {% if aba == 'ficha' %}show active{% endif %}" id="aba-ficha" role="tabpanel">
+    {% set por_linha = {} %}
+    {% for e in p.entidades %}{% set _ = por_linha.setdefault(e.linha_id, []).append(e) %}{% endfor %}
+    {% if p.entidades %}
+      <div class="list-group mb-3">
+        {% for l in linhas if l.id in por_linha %}
+          {% for e in por_linha[l.id]|sort(attribute='nome_chave') %}
+            <div class="list-group-item d-flex justify-content-between align-items-center gap-2 {% if not e.ativa %}text-muted{% endif %}">
+              <div><span class="text-muted small d-block">{{ l.nome }}</span>
+                {{ e.rotulo }}{% if not e.nome %} <span class="badge text-bg-light border">sem nome ainda</span>{% endif %}
+                {% if not e.ativa %}<span class="badge text-bg-secondary">não trabalha mais</span>{% endif %}</div>
+              <a class="btn btn-outline-primary btn-sm" href="{{ url_for('entidades.editar', id=e.id) }}">Editar</a>
+            </div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-muted">Nenhuma entidade na ficha.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('pessoas.adicionar_entidade', id=p.id) }}" class="card card-body bg-body-tertiary">
+      {{ csrf() }}
+      <h2 class="h6">Adicionar entidade</h2>
+      <div class="row g-2">
+        <div class="col-12 col-md-4">
+          <select class="form-select" name="linha_id" required>
+            <option value="">Linha…</option>
+            {% for l in linhas %}<option value="{{ l.id }}">{{ l.nome }}</option>{% endfor %}
+          </select></div>
+        <div class="col-12 col-md-5"><input class="form-control" name="nome" placeholder="Nome (vazio se ainda não deu o nome)"></div>
+        <div class="col-12 col-md-3"><button class="btn btn-success w-100">Adicionar</button></div>
+      </div>
+    </form>
+  </div>
+
+  {# ------------------------------------------------------------- Parentes #}
+  <div class="tab-pane fade {% if aba == 'parentes' %}show active{% endif %}" id="aba-parentes" role="tabpanel">
+    {% if p.parentesco_informado %}
+      <p class="small text-muted">Na planilha antiga constava: “{{ p.parentesco_informado }}”.</p>
+    {% endif %}
+    <div class="list-group mb-3">
+      {% for laco in parentes %}{% set o = laco.outra(p) %}
+        <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+          <div><a href="{{ url_for('pessoas.prontuario', id=o.id, aba='parentes') }}">{{ o.nome }}</a>
+            {{ selo_categoria(o.categoria) }}
+            <div class="small text-muted">{{ laco.tipo }}{% if laco.observacao %} · {{ laco.observacao }}{% endif %}</div></div>
+          {{ botao_excluir(url_for('pessoas.remover_parente', id=p.id, laco_id=laco.id), 'Remover o parentesco com ' ~ o.nome ~ '?', 'Remover') }}
+        </div>
+      {% else %}<div class="list-group-item text-muted">Nenhum parente cadastrado.</div>{% endfor %}
+    </div>
+    <form method="post" action="{{ url_for('pessoas.adicionar_parente', id=p.id) }}" class="card card-body bg-body-tertiary">
+      {{ csrf() }}
+      <h2 class="h6">Adicionar parente</h2>
+      <div class="row g-2">
+        <div class="col-12 col-md-5">{{ campo_pessoa('parente', pessoas, exigir=True) }}</div>
+        <div class="col-7 col-md-4"><select class="form-select" name="tipo">
+          {% for t in tipos_parentesco %}<option>{{ t }}</option>{% endfor %}</select></div>
+        <div class="col-5 col-md-3"><button class="btn btn-success w-100">Adicionar</button></div>
+      </div>
+    </form>
+  </div>
+
+  {# ------------------------------------------------------------- Histórico #}
+  <div class="tab-pane fade {% if aba == 'historico' %}show active{% endif %}" id="aba-historico" role="tabpanel">
+    <form method="post" action="{{ url_for('pessoas.mudar_categoria', id=p.id) }}" class="card card-body bg-body-tertiary mb-3">
+      {{ csrf() }}{{ versao(p) }}
+      <h2 class="h6">Mudar categoria <small class="text-muted fw-normal">(atual: {{ p.categoria }})</small></h2>
+      <div class="row g-2">
+        <div class="col-6 col-md-3"><select class="form-select" name="categoria">
+          {% for c in categorias %}<option {% if c == p.categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-3"><input class="form-control" type="date" name="data" value="{{ hoje }}"></div>
+        <div class="col-12 col-md-4"><input class="form-control" name="observacao" placeholder="ex.: convidado pelo Sete Flechas"></div>
+        <div class="col-12 col-md-2"><button class="btn btn-success w-100">Registrar</button></div>
+      </div>
+    </form>
+    <ul class="list-group">
+      {% for h in p.historico %}
+        <li class="list-group-item">
+          <div class="d-flex justify-content-between gap-2"><span>
+            {% if h.de %}{{ h.de }} → {% endif %}<strong>{{ h.para }}</strong></span>
+            <span class="text-muted small">{{ h.data|data }}</span></div>
+          <div class="small text-muted">{{ h.observacao or '' }}{% if h.registrado_por %} · por {{ h.registrado_por }}{% endif %}</div>
+        </li>
+      {% else %}<li class="list-group-item text-muted">Sem registros.</li>{% endfor %}
+    </ul>
+    <p class="text-muted small mt-3">Giras, conversas e retornos aparecerão aqui na Fase 2.</p>
+    <div class="mt-4 text-end">
+      {{ botao_excluir(url_for('pessoas.excluir', id=p.id), 'Excluir ' ~ p.nome ~ ' e todo o histórico? Para quem saiu da casa, prefira desmarcar "Ativo(a)" no cadastro.', 'Excluir cadastro') }}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// mantém a aba aberta no endereço, para o "voltar" e o recarregar caírem no mesmo lugar
+document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function (botao) {
+  botao.addEventListener('shown.bs.tab', function () {
+    var url = new URL(window.location);
+    url.searchParams.set('aba', botao.dataset.bsTarget.replace('#aba-', ''));
+    history.replaceState(null, '', url);
+  });
+});
+</script>
+{% endblock %}

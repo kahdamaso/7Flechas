@@ -1,9 +1,9 @@
 from flask import Blueprint, flash, redirect, render_template, request, url_for
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
-from ..models import Entidade, Linha, Manifestacao
+from ..models import Entidade, Linha, Pessoa
+from ..utils import chave
 from .forms import campo, campo_int, versao_confere
 
 bp = Blueprint("entidades", __name__, url_prefix="/entidades")
@@ -11,59 +11,50 @@ bp = Blueprint("entidades", __name__, url_prefix="/entidades")
 
 @bp.route("/")
 def lista():
-    linhas = Linha.query.filter_by(servico=False).order_by(Linha.ordem).all()
-    usos = dict(
-        db.session.query(Manifestacao.entidade_id, func.count(Manifestacao.id))
-        .group_by(Manifestacao.entidade_id).all()
-    )
-    return render_template("entidades/lista.html", linhas=linhas, usos=usos)
-
-
-def _salvar(ent):
-    if not versao_confere(ent):
-        return False
-    nome, linha_id = campo("nome"), campo_int("linha_id")
-    if not nome or not db.session.get(Linha, linha_id or 0):
-        flash("Informe o nome e a linha.", "danger")
-        return False
-    ent.nome, ent.linha_id, ent.observacoes = nome, linha_id, campo("observacoes")
-    try:
-        db.session.add(ent)
-        db.session.commit()
-    except IntegrityError:
-        db.session.rollback()
-        flash("Já existe uma entidade com esse nome nessa linha.", "danger")
-        return False
-    return True
-
-
-def _form(ent, titulo):
-    linhas = Linha.query.filter_by(servico=False).order_by(Linha.ordem).all()
-    return render_template("entidades/form.html", ent=ent, linhas=linhas, titulo=titulo)
-
-
-@bp.route("/nova", methods=["GET", "POST"])
-def nova():
-    ent = Entidade(linha_id=request.args.get("linha", type=int))
-    if request.method == "POST" and _salvar(ent):
-        flash("Entidade cadastrada.", "success")
-        return redirect(url_for(".lista") + f"#linha{ent.linha_id}")
-    return _form(ent, "Nova entidade")
+    """Todas as entidades da casa, por linha, com o médium de cada uma."""
+    busca = request.args.get("q", "").strip()
+    linhas = Linha.query.order_by(Linha.ordem).all()
+    consulta = Entidade.query.join(Pessoa).filter(Pessoa.ativo.is_(True))
+    if busca:
+        k = chave(busca)
+        consulta = consulta.filter(Entidade.nome_chave.contains(k) | Pessoa.nome_chave.contains(k)
+                                   | Pessoa.apelido.ilike(f"%{busca}%"))
+    por_linha = {}
+    for e in consulta.all():
+        por_linha.setdefault(e.linha_id, []).append(e)
+    for lista_linha in por_linha.values():
+        lista_linha.sort(key=lambda e: (not e.ativa, e.nome is None, chave(e.rotulo)))
+    return render_template("entidades/lista.html", linhas=linhas, por_linha=por_linha, busca=busca)
 
 
 @bp.route("/<int:id>/editar", methods=["GET", "POST"])
 def editar(id):
     ent = db.get_or_404(Entidade, id)
-    if request.method == "POST" and _salvar(ent):
-        flash("Entidade atualizada.", "success")
-        return redirect(url_for(".lista") + f"#linha{ent.linha_id}")
-    return _form(db.get_or_404(Entidade, id), f"Editar {ent.nome}")
+    if request.method == "POST" and versao_confere(ent):
+        linha = db.session.get(Linha, campo_int("linha_id") or 0)
+        if linha is None:
+            flash("Escolha a linha.", "danger")
+        else:
+            ent.nome, ent.linha = campo("nome"), linha
+            ent.ativa = request.form.get("ativa") == "on"
+            ent.observacoes = campo("observacoes")
+            try:
+                db.session.commit()
+                flash("Entidade atualizada.", "success")
+                return redirect(url_for("pessoas.prontuario", id=ent.medium_id, aba="ficha"))
+            except IntegrityError:
+                db.session.rollback()
+                flash("Esse médium já tem uma entidade com esse nome nessa linha.", "danger")
+        ent = db.get_or_404(Entidade, id)
+    return render_template("entidades/editar.html", ent=ent,
+                           linhas=Linha.query.order_by(Linha.ordem).all())
 
 
 @bp.route("/<int:id>/excluir", methods=["POST"])
 def excluir(id):
     ent = db.get_or_404(Entidade, id)
+    medium_id = ent.medium_id
     db.session.delete(ent)
     db.session.commit()
-    flash(f"Entidade {ent.nome} excluída. Os atendimentos mantêm o texto original.", "success")
-    return redirect(url_for(".lista"))
+    flash("Entidade removida da ficha.", "success")
+    return redirect(url_for("pessoas.prontuario", id=medium_id, aba="ficha"))

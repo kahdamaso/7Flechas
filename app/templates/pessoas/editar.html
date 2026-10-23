@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, versao %}
+{% block titulo %}Editar {{ p.nome }}{% endblock %}
+{% block conteudo %}
+<h1 class="h4 mb-3">Editar cadastro</h1>
+<form method="post">
+  {{ csrf() }}{{ versao(p) }}
+  {% include "pessoas/_campos_dados.html" %}
+
+  <h2 class="h6 mt-4">Na casa</h2>
+  <div class="row g-3">
+    <div class="col-12 col-md-4"><label class="form-label" for="apelido">Apelido / como é chamado(a)</label>
+      <input class="form-control" id="apelido" name="apelido" placeholder="ex.: Pai Igor, Thiago DV" value="{{ form.get('apelido', p.apelido or '') }}"></div>
+    <div class="col-12 col-md-8 d-flex flex-wrap align-items-end gap-3">
+      {% set marcadas = form.getlist('funcoes') if form else p.nomes_funcoes %}
+      {% for f in funcoes %}
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" name="funcoes" value="{{ f }}" id="f{{ loop.index }}" {% if f in marcadas %}checked{% endif %}>
+          <label class="form-check-label" for="f{{ loop.index }}">{{ f }}</label></div>
+      {% endfor %}
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" name="incorpora" id="incorpora"
+               {% if (form.get('incorpora') if form else p.incorpora) %}checked{% endif %}>
+        <label class="form-check-label" for="incorpora">Incorpora</label></div>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" name="ativo" id="ativo"
+               {% if (form.get('ativo') if form else p.ativo) %}checked{% endif %}>
+        <label class="form-check-label" for="ativo">Ativo(a)</label></div>
+    </div>
+  </div>
+  <p class="form-text">A categoria (Consulente, Colaborador…) é alterada no prontuário, na aba Histórico, para ficar registrada a data da mudança.</p>
+
+  <div class="barra-acoes">
+    <button class="btn btn-success btn-lg">Salvar</button>
+    <a class="btn btn-link" href="{{ url_for('pessoas.prontuario', id=p.id) }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

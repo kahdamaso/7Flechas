@@ -1,27 +1,29 @@
-"""Importação das planilhas CSV do TUC7FJ para o banco SQLite.
+"""Importação dos cadastros a partir da planilha TUC7FJ (Fase 1).
 
-Arquivos reconhecidos (pelo nome, sem diferenciar maiúsculas/acentos):
+Aceita o .xlsx baixado do Google Drive ou uma pasta com CSVs exportados das
+abas (o nome do arquivo identifica a aba, ex.: ``TUC7FJ_CONSULENTE.csv``).
 
-- ``*CONSULENTE*.csv``        cadastro de consulentes
-- ``*RETORNO_MEDIUNS*.csv``   entidades que cada médium trabalha
-- ``*PRESEN*.csv``            presença dos médiuns (formato largo ou longo)
-- ``*DD_MM_AAAA*.csv``        planilha de uma sessão/gira com os atendimentos
+Abas usadas
+-----------
+- ``PRESENÇA`` / ``RETORNO MEDIUNS`` / ``Página15``: nome e categoria dos
+  médiuns (nesta ordem de prioridade quando há divergência).
+- ``Cópia de GUIA``: ficha espiritual (médium x linha -> entidades).
+- ``GUIA``: listas de seleção da planilha; os apelidos dos médiuns que
+  incorporam ("Pai Igor", "Thiago DV") aparecem nelas.
+- ``CONSULENTE``: cadastro do público (CPF, cidade, outra casa, como soube,
+  parentesco, telefone).
 
-A ordem de processamento é sempre: consulentes -> retorno dos médiuns ->
-sessões -> presença, para que as sessões consigam identificar médiuns e
-entidades já cadastrados.
+Giras/sessões antigas NÃO são importadas (o sistema começa do zero).
 
-Tratamentos aplicados às planilhas:
-- detecção de codificação (UTF-8, UTF-8 com BOM, Windows-1252) e separador (, ou ;);
-- cabeçalhos localizados em qualquer linha (blocos Corrente/Auxiliares/...);
-- espaços extras, células "-", "N/A", "#N/D" etc. tratadas como vazias;
-- nomes em CAIXA ALTA convertidos para nome próprio;
-- comparação de nomes sem acentos/caixa ('Canindé ' == 'CANINDE');
-- CPF sem máscara e com zeros à esquerda recompostos; CPFs inválidos descartados com aviso;
-- reimportação idempotente: pessoas, entidades e sessões já existentes são reaproveitadas.
+Tratamentos: espaços e células vazias ("-", "NÃO", "0"), nomes em CAIXA ALTA,
+nomes com/sem acento e com palavras em outra ordem, CPF/telefone gravados como
+número (zero à esquerda perdido), erros de digitação conhecidos. A importação é
+idempotente: rodar de novo não duplica nada e não apaga o que foi digitado no
+sistema (só preenche campos vazios).
 """
 
 import csv
+import difflib
 import io
 import re
 from dataclasses import dataclass, field
@@ -30,157 +32,161 @@ from pathlib import Path
 
 from .extensions import db
 from .models import (
-    Atendimento,
-    Consulente,
     Entidade,
+    HistoricoCategoria,
     Linha,
-    Manifestacao,
-    Medium,
-    MediumEntidade,
-    Presenca,
-    Sessao,
+    Parentesco,
+    Pessoa,
     garantir_linhas_padrao,
 )
 from .utils import chave, limpar, nome_proprio, normalizar_cpf, normalizar_telefone
 
-# ---------------------------------------------------------------------------
-# Vocabulário das planilhas
-# ---------------------------------------------------------------------------
+ORIGEM = "Importado da planilha"
 
-VAZIOS = {"", "-", "--", "---", ".", "n/a", "na", "null", "none", "nan", "#n/d", "#n/a"}
+VAZIOS = {"", "-", "--", ".", "0", "0.0", "n/a", "na", "null", "none", "nan", "#n/d", "#n/a",
+          "nao", "não", "x"}
 
-# cabeçalho da coluna (chave compacta) -> nome da Linha no banco
-_LINHAS_CABECALHO = {
-    "7flechas": "7 Flechas",
-    "seteflechas": "7 Flechas",
-    "maca": "Maca",
-    "caboclo": "Caboclo",
-    "caboclos": "Caboclo",
-    "boiadeiro": "Boiadeiro",
-    "boiadeiros": "Boiadeiro",
-    "baiano": "Baiano",
-    "baianos": "Baiano",
-    "povodagua": "Povo d'Água",
-    "povod'agua": "Povo d'Água",
-    "marinheiro": "Povo d'Água",
-    "marinheiros": "Povo d'Água",
-    "pretovelho": "Preto Velho",
-    "pretovelhos": "Preto Velho",
-    "pretosvelhos": "Preto Velho",
-    "ere": "Erê",
-    "eres": "Erê",
-    "crianca": "Erê",
-    "criancas": "Erê",
-    "cigano": "Cigano",
-    "ciganos": "Cigano",
-    "cigana": "Cigano",
-    "exu": "Exu",
-    "exus": "Exu",
-    "pombogira": "Pombo Gira",
-    "pombagira": "Pombo Gira",
-    "pombasgiras": "Pombo Gira",
-    "malandragem": "Malandragem",
-    "malandro": "Malandragem",
-    "malandros": "Malandragem",
-    "mestre": "Mestres",
-    "mestres": "Mestres",
-}
-
-# título do bloco na planilha de sessão -> categoria do atendimento
-_BLOCOS = {
-    "corrente": "Corrente",
-    "auxiliar": "Auxiliar",
-    "auxiliares": "Auxiliar",
-    "colaborador": "Colaborador",
-    "colaboradores": "Colaborador",
-    "consulente": "Consulente",
-    "consulentes": "Consulente",
-}
-
-# Correções de digitação recorrentes (chave normalizada -> forma correta).
 CORRECOES = {
-    "orientecao espiritual": "Orientação Espiritual",
-    "orientacao espiritual": "Orientação Espiritual",
     "sutao da matas": "Sultão das Matas",
     "sutao das matas": "Sultão das Matas",
     "sultao da matas": "Sultão das Matas",
     "ze caveira": "Zé Caveira",
+    "mae conga": "Mãe Conga",
 }
 
-PRESENTE = {"p", "x", "presente", "sim", "s", "1", "ok", "✓", "✔", "v"}
-FALTA = {"f", "falta", "faltou", "nao", "n", "0", "ausente", "a"}
-JUSTIFICADA = {"j", "fj", "justificada", "justificado", "falta justificada"}
+CIDADES = {
+    "bo despacho": "Bom Despacho",
+    "nova serana": "Nova Serrana",
+    "vespaziano": "Vespasiano",
+    "divinopolis": "Divinópolis",
+    "abaete": "Abaeté",
+    "itauna": "Itaúna",
+    "tres marias": "Três Marias",
+    "dores do indaia": "Dores do Indaiá",
+    "sao goncalo do para": "São Gonçalo do Pará",
+    "santo antonio do monte": "Santo Antônio do Monte",
+}
+
+# cabeçalho (compacto, sem acento/espaço) -> nome da Linha
+_LINHAS = {
+    "caboclo": "Caboclo", "caboclos": "Caboclo",
+    "pretovelho": "Preto Velho", "pretovelhos": "Preto Velho", "pretosvelhos": "Preto Velho",
+    "baiano": "Baiano", "baianos": "Baiano",
+    "boiadeiro": "Boiadeiro", "boiadeiros": "Boiadeiro",
+    "povodagua": "Povo d'Água",
+    "cigano": "Cigano", "ciganos": "Cigano",
+    "ere": "Erê", "eres": "Erê",
+    "exu": "Exu", "exus": "Exu",
+    "exumirim": "Exu Mirim",
+    "pombogira": "Pomba Gira", "pombagira": "Pomba Gira",
+    "pombogiramirim": "Pomba Gira Mirim", "pombagiramirim": "Pomba Gira Mirim",
+    "pombog.mirim": "Pomba Gira Mirim",
+    "malandragem": "Malandragem",
+    "mestre": "Mestres", "mestres": "Mestres",
+    "princesa": "Princesas", "princesas": "Princesas",
+    "cangaco": "Cangaço",
+}
+
+_CATEGORIAS = {"corrente": "Corrente", "auxiliar": "Auxiliar", "auxiliares": "Auxiliar",
+               "colaborador": "Colaborador", "colaboradores": "Colaborador",
+               "consulente": "Consulente"}
+
+_COL_NOME_MEDIUM = {"mediuns", "medium", "mediun", "nome", "membro"}
+_COL_CATEGORIA = {"categoria", "catogoria", "tipo", "grupo"}
+
+# abas: chave normalizada do nome -> papel
+ABAS = {
+    "presenca": "categorias",
+    "retorno mediuns": "categorias",
+    "pagina15": "categorias",
+    "copia de guia": "ficha",
+    "ficha espiritual": "ficha",
+    "guia": "apelidos",
+    "consulente": "consulentes",
+    "consulentes": "consulentes",
+}
+ORDEM_CATEGORIAS = ["presenca", "retorno mediuns", "pagina15"]
 
 
-def _compacto(texto):
-    return re.sub(r"[\s'´`’]", "", chave(texto))
+# ---------------------------------------------------------------------------
+# Leitura
+# ---------------------------------------------------------------------------
 
 
-def linha_do_cabecalho(texto):
-    return _LINHAS_CABECALHO.get(_compacto(texto))
-
-
-def valor(texto):
-    """Limpa uma célula; devolve None para valores vazios/marcadores de nulo."""
-    texto = limpar(texto)
-    if texto is None or chave(texto) in VAZIOS:
+def texto(valor):
+    """Converte uma célula (str, número, data) em texto limpo ou None."""
+    if valor is None:
         return None
-    return texto
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)
+    if isinstance(valor, datetime):
+        valor = valor.date()
+    if isinstance(valor, date):
+        return valor.isoformat()
+    return limpar(str(valor))
 
 
-def corrigir(texto):
-    texto = valor(texto)
-    if texto is None:
+def util(valor):
+    """Texto da célula, ou None se for um marcador de vazio ('-', 'NÃO', '0')."""
+    t = texto(valor)
+    if t is None or chave(t) in VAZIOS:
         return None
-    return CORRECOES.get(chave(texto), nome_proprio(texto))
+    return t
 
 
-def ler_data(texto, ano_padrao=None):
-    texto = valor(texto)
-    if not texto:
-        return None
-    texto = texto.split(" ")[0]
-    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y", "%d_%m_%Y"):
-        try:
-            return datetime.strptime(texto, fmt).date()
-        except ValueError:
-            pass
-    if ano_padrao:
-        m = re.fullmatch(r"(\d{1,2})[/\-.](\d{1,2})", texto)
-        if m:
-            try:
-                return date(ano_padrao, int(m.group(2)), int(m.group(1)))
-            except ValueError:
-                return None
-    return None
+def _nome_aba(nome):
+    nome = re.sub(r"^\w{0,12}?TUC7FJ[_\s-]*", "", nome, flags=re.I)  # tira prefixo do arquivo
+    return chave(nome.replace("_", " ")).strip()
 
 
-def data_do_arquivo(caminho):
-    m = re.search(r"(\d{2})[_\-.](\d{2})[_\-.](\d{4})", Path(caminho).stem)
-    if not m:
-        return None
+def ler_planilha(caminho):
+    """Devolve {nome_normalizado_da_aba: [linhas]} para .xlsx, .csv ou pasta de CSVs."""
+    caminho = Path(caminho)
+    if caminho.is_dir():
+        abas = {}
+        for arq in sorted(caminho.glob("*.csv")):
+            abas[_nome_aba(arq.stem)] = _ler_csv(arq)
+        for arq in sorted(caminho.glob("*.xlsx")):
+            abas.update(ler_planilha(arq))
+        return abas
+    if caminho.suffix.lower() == ".csv":
+        return {_nome_aba(caminho.stem): _ler_csv(caminho)}
+    import openpyxl
+
+    livro = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
     try:
-        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-    except ValueError:
-        return None
+        return {_nome_aba(ws.title): [list(r) for r in ws.iter_rows(values_only=True)]
+                for ws in livro.worksheets}
+    finally:
+        livro.close()
 
 
-def ler_csv(caminho):
-    """Lê um CSV tolerando codificação e separador diferentes."""
+def _ler_csv(caminho):
     bruto = Path(caminho).read_bytes()
     for codificacao in ("utf-8-sig", "cp1252", "latin-1"):
         try:
-            texto = bruto.decode(codificacao)
+            conteudo = bruto.decode(codificacao)
             break
         except UnicodeDecodeError:
             continue
-    amostra = texto[:4096]
+    amostra = conteudo[:4096]
     separador = ";" if amostra.count(";") > amostra.count(",") else ","
-    return [linha for linha in csv.reader(io.StringIO(texto), delimiter=separador)]
+    return list(csv.reader(io.StringIO(conteudo), delimiter=separador))
 
 
-def _celula(linha, indice):
-    return linha[indice] if indice is not None and indice < len(linha) else None
+def _celula(linha, i):
+    return linha[i] if i is not None and i < len(linha) else None
+
+
+def _compacto(valor):
+    return re.sub(r"[\s'´`’]", "", chave(texto(valor) or ""))
+
+
+def corrigir(valor):
+    t = util(valor)
+    if t is None:
+        return None
+    return CORRECOES.get(chave(t), nome_proprio(t))
 
 
 # ---------------------------------------------------------------------------
@@ -192,20 +198,25 @@ def _celula(linha, indice):
 class Relatorio:
     contagens: dict = field(default_factory=dict)
     avisos: list = field(default_factory=list)
-    entidades_criadas: list = field(default_factory=list)
+    pendencias: dict = field(default_factory=dict)  # título -> itens para conferir à mão
 
     def conta(self, item, n=1):
         self.contagens[item] = self.contagens.get(item, 0) + n
 
-    def aviso(self, arquivo, mensagem):
-        self.avisos.append(f"[{Path(arquivo).name}] {mensagem}")
+    def aviso(self, mensagem):
+        self.avisos.append(mensagem)
+
+    def pendencia(self, titulo, item):
+        itens = self.pendencias.setdefault(titulo, [])
+        if item not in itens:
+            itens.append(item)
 
     def texto(self):
         linhas = ["Resumo da importação:"]
         linhas += [f"  {k}: {v}" for k, v in sorted(self.contagens.items())]
-        if self.entidades_criadas:
-            linhas.append("\nEntidades criadas (confira se algum nome é na verdade um médium):")
-            linhas += [f"  - {e}" for e in self.entidades_criadas]
+        for titulo, itens in self.pendencias.items():
+            linhas.append(f"\n{titulo} ({len(itens)}):")
+            linhas += [f"  - {i}" for i in itens]
         if self.avisos:
             linhas.append(f"\nAvisos ({len(self.avisos)}):")
             linhas += [f"  - {a}" for a in self.avisos]
@@ -213,427 +224,335 @@ class Relatorio:
 
 
 # ---------------------------------------------------------------------------
-# Repositório em memória para buscas por nome durante a importação
+# Busca de pessoas
 # ---------------------------------------------------------------------------
 
 
-class Cadastros:
-    def __init__(self, relatorio):
-        self.rel = relatorio
-        self.linhas = {l.nome: l for l in Linha.query.all()}
-
-    # -- médiuns -----------------------------------------------------------
-    def medium(self, nome, grupo=None):
-        nome = nome_proprio(nome)
-        medium = Medium.query.filter_by(nome_chave=chave(nome)).first()
-        if medium is None:
-            medium = Medium.query.filter(Medium.apelido.isnot(None)).filter(
-                db.func.lower(Medium.apelido) == nome.lower()
-            ).first()
-        if medium is None:
-            medium = Medium(nome=nome, grupo=grupo or "Corrente")
-            db.session.add(medium)
-            db.session.flush()
-            self.rel.conta("médiuns criados")
-        return medium
-
-    def medium_por_referencia(self, texto):
-        """Identifica um médium citado numa célula ('Pablo', 'Thiago DV').
-
-        Devolve (medium, ambiguo). Só aceita correspondência única. Pelo
-        primeiro nome, só considera textos curtos ('Pablo', 'Thiago DV'), para
-        não confundir entidades como 'Maria Quitéria' com a médium 'Maria ...'.
-        """
-        k = chave(texto)
-        todos = Medium.query.all()
-        exatos = [m for m in todos if m.nome_chave == k or (m.apelido and chave(m.apelido) == k)]
-        if len(exatos) == 1:
-            return exatos[0], False
-        if len(exatos) > 1:
-            return None, True
-        tokens = k.split(" ")
-        referencia_curta = len(tokens) == 1 or (len(tokens) == 2 and len(tokens[1]) <= 3)
-        if not referencia_curta:
-            return None, False
-        mesmo_nome = [m for m in todos if m.nome_chave.split(" ")[0] == tokens[0]]
-        if len(mesmo_nome) == 1:
-            return mesmo_nome[0], False
-        return None, len(mesmo_nome) > 1
-
-    # -- consulentes ---------------------------------------------------------
-    def consulente(self, nome, arquivo):
-        nome = nome_proprio(nome)
-        encontrados = Consulente.query.filter_by(nome_chave=chave(nome)).all()
-        if len(encontrados) > 1:
-            self.rel.aviso(arquivo, f"'{nome}' tem {len(encontrados)} cadastros homônimos; usado o primeiro.")
-        if encontrados:
-            return encontrados[0]
-        consulente = Consulente(nome=nome)
-        db.session.add(consulente)
-        db.session.flush()
-        self.rel.conta("consulentes criados")
-        return consulente
-
-    # -- entidades -----------------------------------------------------------
-    def entidade(self, nome, linha, criar=True):
-        nome = corrigir(nome)
-        if not nome:
-            return None
-        ent = Entidade.query.filter_by(linha_id=linha.id, nome_chave=chave(nome)).first()
-        if ent is None and criar:
-            ent = Entidade(nome=nome, linha=linha)
-            db.session.add(ent)
-            db.session.flush()
-            self.rel.conta("entidades criadas")
-            self.rel.entidades_criadas.append(f"{linha.nome}: {nome}")
-        return ent
-
-    def vincular(self, medium, entidade):
-        existe = MediumEntidade.query.filter_by(medium_id=medium.id, entidade_id=entidade.id).first()
-        if not existe:
-            db.session.add(MediumEntidade(medium=medium, entidade=entidade))
-            db.session.flush()
-            self.rel.conta("vínculos médium-entidade")
-
-    def presenca(self, sessao, medium, presente=True, justificativa=None, sobrescrever=False):
-        p = Presenca.query.filter_by(sessao_id=sessao.id, medium_id=medium.id).first()
-        if p is None:
-            p = Presenca(sessao=sessao, medium=medium, presente=presente, justificativa=justificativa)
-            db.session.add(p)
-            db.session.flush()
-            self.rel.conta("presenças registradas")
-        elif sobrescrever:
-            p.presente, p.justificativa = presente, justificativa
-        return p
+def _tokens(nome):
+    return chave(nome).split()
 
 
-def _sessao(data_sessao):
-    sessao = Sessao.query.filter_by(data=data_sessao).order_by(Sessao.id).first()
-    if sessao is None:
-        sessao = Sessao(data=data_sessao, tipo="Gira")
-        db.session.add(sessao)
-        db.session.flush()
-    return sessao
+def encontrar_pessoa(nome):
+    """Mesma pessoa = mesmo nome sem acento/caixa, ou as mesmas palavras em outra
+    ordem ('Thiago Costa Soares' == 'Thiago Soares Costa')."""
+    k = chave(nome)
+    pessoa = Pessoa.query.filter_by(nome_chave=k).first()
+    if pessoa:
+        return pessoa
+    if not k:
+        return None
+    alvo = sorted(k.split())
+    mesmo_primeiro = Pessoa.query.filter(Pessoa.nome_chave.like(f"{k.split()[0]}%")).all()
+    candidatos = [p for p in mesmo_primeiro if sorted(p.nome_chave.split()) == alvo]
+    return candidatos[0] if len(candidatos) == 1 else None
+
+
+def _criar_pessoa(nome, categoria, rel):
+    p = Pessoa(nome=nome_proprio(nome), categoria=categoria, atualizado_por=ORIGEM)
+    p.historico.append(HistoricoCategoria(de=None, para=categoria, observacao=ORIGEM,
+                                          registrado_por=ORIGEM))
+    db.session.add(p)
+    db.session.flush()
+    rel.conta(f"pessoas criadas ({categoria})")
+    return p
+
+
+def _parecido(a, b):
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.8
+
+
+def _referencia_medium(ref, mediuns):
+    """Identifica um médium citado de forma abreviada ('Pai Káh', 'Maria Nunes',
+    'Natalia R', 'Mileny').
+
+    Devolve (pessoa, ambiguo, aproximado). Só aceita correspondência única;
+    ``aproximado`` indica que foi por grafia parecida e merece conferência.
+    """
+    k = chave(ref)
+    base = re.sub(r"^(pai|mae|vo|vovo|tio|tia)\s+", "", k)
+    if not base:
+        return None, False, False
+    exatos = [m for m in mediuns if m.apelido and chave(m.apelido) in (k, base)]
+    if len(exatos) == 1:
+        return exatos[0], False, False
+    tokens = base.split()
+
+    def contem(m):
+        # as palavras citadas aparecem no nome, na mesma ordem; uma letra só vale
+        # como inicial ('Natalia R' -> 'Natália Rodrigues')
+        nome = m.nome_chave.split()
+        if nome[0] != tokens[0]:
+            return False
+        pos = 1
+        for t in tokens[1:]:
+            achou = next((i for i in range(pos, len(nome))
+                          if nome[i] == t or (len(t) == 1 and nome[i].startswith(t))), None)
+            if achou is None:
+                return False
+            pos = achou + 1
+        return True
+
+    candidatos = [m for m in mediuns if contem(m)]
+    if len(candidatos) == 1:
+        return candidatos[0], False, False
+    if candidatos:
+        return None, True, False
+    # grafia parecida do primeiro nome ('Mileny' ~ 'Mylene', 'Raylaine' ~ 'Railany')
+    if len(tokens[0]) >= 4:
+        parecidos = [m for m in mediuns if _parecido(tokens[0], m.nome_chave.split()[0])]
+        if len(tokens) > 1:
+            parecidos = [m for m in parecidos
+                         if all(any(_parecido(t, n) for n in m.nome_chave.split()[1:])
+                                for t in tokens[1:])]
+        if len(parecidos) == 1:
+            return parecidos[0], False, True
+        if parecidos:
+            return None, True, False
+    return None, False, False
 
 
 # ---------------------------------------------------------------------------
-# Cabeçalhos
-# ---------------------------------------------------------------------------
-
-_ALIASES_CONSULENTE = {
-    "nome": {"nome", "nome completo", "consulente", "consulentes", "nome do consulente"},
-    "cpf": {"cpf", "cpf/cnpj", "documento"},
-    "telefone": {"telefone", "tel", "celular", "fone", "whatsapp", "contato", "telefone/whatsapp"},
-    "email": {"email", "e-mail", "e mail"},
-    "cidade": {"cidade", "municipio"},
-    "uf": {"uf", "estado"},
-    "bairro": {"bairro"},
-    "endereco": {"endereco", "rua", "logradouro"},
-    "data_nascimento": {
-        "data de nascimento", "data nascimento", "nascimento", "dt nasc", "dt. nasc.", "data nasc",
-        "aniversario",
-    },
-    "observacoes": {"observacoes", "observacao", "obs", "obs.", "anotacoes"},
-}
-
-_NOME_MEDIUM = {"nome", "medium", "mediuns", "nome do medium", "membro"} | set(_BLOCOS)
-
-
-def _mapear(cabecalho, aliases):
-    mapa = {}
-    for i, celula in enumerate(cabecalho):
-        k = chave(celula)
-        for campo, nomes in aliases.items():
-            if k in nomes and campo not in mapa:
-                mapa[campo] = i
-    return mapa
-
-
-# ---------------------------------------------------------------------------
-# Importadores
+# Etapas
 # ---------------------------------------------------------------------------
 
 
-def importar_consulentes(caminho, cad, rel):
-    linhas = ler_csv(caminho)
-    inicio, mapa = None, {}
-    for i, linha in enumerate(linhas[:20]):
-        mapa = _mapear(linha, _ALIASES_CONSULENTE)
-        if "nome" in mapa:
-            inicio = i + 1
-            break
-    if inicio is None:
-        rel.aviso(caminho, "cabeçalho com coluna 'Nome' não encontrado; arquivo ignorado.")
+def _achar_cabecalho(linhas, testar, limite=15):
+    for i, linha in enumerate(linhas[:limite]):
+        mapa = testar([chave(texto(c) or "") for c in linha])
+        if mapa:
+            return i, mapa
+    return None, None
+
+
+def importar_categorias(abas, rel):
+    """Cria/atualiza os médiuns com a categoria. A primeira aba (PRESENÇA) prevalece."""
+    definidas = {}  # pessoa_id -> (categoria, aba)
+    for nome_aba in ORDEM_CATEGORIAS:
+        linhas = abas.get(nome_aba)
+        if not linhas:
+            continue
+
+        def testar(cab):
+            col_nome = next((i for i, c in enumerate(cab) if c in _COL_NOME_MEDIUM), None)
+            col_cat = next((i for i, c in enumerate(cab) if c in _COL_CATEGORIA), None)
+            return (col_nome, col_cat) if col_nome is not None and col_cat is not None else None
+
+        inicio, cols = _achar_cabecalho(linhas, testar)
+        if cols is None:
+            rel.aviso(f"Aba '{nome_aba}': cabeçalho com nome e categoria não encontrado.")
+            continue
+        col_nome, col_cat = cols
+        for linha in linhas[inicio + 1:]:
+            nome = util(_celula(linha, col_nome))
+            categoria = _CATEGORIAS.get(chave(texto(_celula(linha, col_cat)) or ""))
+            if not nome or not categoria:
+                continue
+            pessoa = encontrar_pessoa(nome)
+            if pessoa is None:
+                pessoa = _criar_pessoa(nome, categoria, rel)
+            anterior = definidas.get(pessoa.id)
+            if anterior is None:
+                definidas[pessoa.id] = (categoria, nome_aba)
+                if pessoa.atualizado_por == ORIGEM and pessoa.categoria != categoria:
+                    pessoa.categoria = categoria
+            elif anterior[0] != categoria:
+                rel.pendencia("Categorias divergentes entre abas (mantida a primeira)",
+                              f"{pessoa.nome}: {anterior[0]} ({anterior[1]}) x {categoria} ({nome_aba})")
+    db.session.flush()
+
+
+def importar_ficha(abas, rel, linhas_db):
+    linhas = abas.get("copia de guia") or abas.get("ficha espiritual")
+    if not linhas:
+        rel.aviso("Aba da ficha espiritual ('Cópia de GUIA') não encontrada.")
         return
 
-    for n, linha in enumerate(linhas[inicio:], start=inicio + 1):
-        nome = valor(_celula(linha, mapa["nome"]))
+    def testar(cab):
+        col_nome = next((i for i, c in enumerate(cab) if c in _COL_NOME_MEDIUM), None)
+        colunas = {i: _LINHAS[re.sub(r"[\s']", "", c)] for i, c in enumerate(cab)
+                   if re.sub(r"[\s']", "", c) in _LINHAS}
+        return (col_nome, colunas) if col_nome is not None and len(colunas) >= 3 else None
+
+    inicio, cols = _achar_cabecalho(linhas, testar)
+    if cols is None:
+        rel.aviso("Ficha espiritual: cabeçalho não reconhecido.")
+        return
+    col_nome, colunas = cols
+    for linha in linhas[inicio + 1:]:
+        nome = util(_celula(linha, col_nome))
         if not nome:
             continue
-        nome = nome_proprio(nome)
-        cpf_bruto = valor(_celula(linha, mapa.get("cpf")))
+        medium = encontrar_pessoa(nome)
+        if medium is None:
+            medium = _criar_pessoa(nome, "Corrente", rel)
+            rel.pendencia("Médiuns da ficha sem categoria em outra aba (cadastrados como Corrente)",
+                          medium.nome)
+        existentes = {(e.linha_id, e.nome_chave) for e in medium.entidades}
+        for i, nome_linha in colunas.items():
+            conteudo = util(_celula(linha, i))
+            if not conteudo:
+                continue
+            linha_db = linhas_db[nome_linha]
+            for parte in re.split(r"[,/;]", conteudo):
+                nome_ent = corrigir(parte)
+                if not nome_ent or chave(nome_ent) == "geral":
+                    continue
+                if (linha_db.id, chave(nome_ent)) in existentes:
+                    continue
+                medium.entidades.append(Entidade(linha=linha_db, nome=nome_ent))
+                existentes.add((linha_db.id, chave(nome_ent)))
+                rel.conta("entidades na ficha espiritual")
+        if medium.entidades and not medium.incorpora:
+            medium.incorpora = True
+    db.session.flush()
+
+
+def importar_apelidos(abas, rel):
+    """Na aba GUIA, além dos nomes das entidades, aparecem os médiuns que
+    incorporam, pelo apelido: "Pai Igor", "Mãe Layla", "Thiago DV", "Jessica".
+
+    - com Pai/Mãe ou com sigla ("Thiago DV") -> vira o apelido do médium;
+    - só o primeiro nome ("Jessica") -> apenas marca que o médium incorpora;
+    - se mais de um médium tem aquele primeiro nome -> fica para conferir à mão.
+    """
+    linhas = abas.get("guia")
+    if not linhas:
+        return
+    mediuns = Pessoa.query.filter(Pessoa.categoria != "Consulente").all()
+    valores = {}
+    for linha in linhas:
+        for celula in linha:
+            valor = util(celula)
+            if valor:
+                valores.setdefault(chave(valor), valor)
+    for k, valor in valores.items():
+        base = re.sub(r"^(pai|mae)\s+", "", k)
+        tokens = base.split()
+        com_titulo = base != k
+        com_sigla = len(tokens) == 2 and len(tokens[1]) <= 3
+        if not tokens or not (len(tokens) == 1 or com_sigla):
+            continue  # nome de entidade ("Pedra Preta", "Rosa Caveira")
+        mesmos = [m for m in mediuns if m.nome_chave.split()[0] == tokens[0]]
+        if not mesmos and com_titulo:
+            # 'Mãe Ralainy' ~ 'Railany'; se nada parecer, é entidade ('Pai Jacó')
+            mesmos = [m for m in mediuns if _parecido(tokens[0], m.nome_chave.split()[0])]
+        if not mesmos:
+            continue  # nome de entidade ("Tiriri", "Pai Joaquim")
+        if len(mesmos) != 1:
+            rel.pendencia("Apelidos não identificados (preencha o apelido no cadastro do médium)",
+                          valor)
+            continue
+        medium = mesmos[0]
+        medium.incorpora = True
+        if (com_titulo or com_sigla) and not medium.apelido:
+            medium.apelido = valor
+            rel.conta("apelidos definidos")
+    db.session.flush()
+
+
+def importar_consulentes(abas, rel):
+    linhas = abas.get("consulente") or abas.get("consulentes")
+    if not linhas:
+        rel.aviso("Aba CONSULENTE não encontrada.")
+        return
+
+    def testar(cab):
+        col_nome = next((i for i, c in enumerate(cab) if c in {"consulente", "nome", "nome completo"}), None)
+        if col_nome is None:
+            return None
+        mapa = {"nome": col_nome}
+        for i, c in enumerate(cab):
+            if c == "cpf":
+                mapa["cpf"] = i
+            elif c.startswith("parentesco"):
+                mapa["parentesco"] = i
+            elif c in ("cidade", "municipio"):
+                mapa["cidade"] = i
+            elif "casa" in c:
+                mapa["outra_casa"] = i
+            elif "sabendo" in c or "soube" in c:
+                mapa["como_soube"] = i
+            elif c in ("telefone", "celular", "whatsapp", "fone"):
+                mapa["telefone"] = i
+            elif "nascimento" in c:
+                mapa["nascimento"] = i
+        return mapa
+
+    inicio, mapa = _achar_cabecalho(linhas, testar)
+    if mapa is None:
+        rel.aviso("Aba CONSULENTE: cabeçalho não reconhecido.")
+        return
+
+    mediuns = Pessoa.query.filter(Pessoa.categoria != "Consulente").all()
+    for n, linha in enumerate(linhas[inicio + 1:], start=inicio + 2):
+        nome = util(_celula(linha, mapa["nome"]))
+        if not nome:
+            continue
+        cpf_bruto = util(_celula(linha, mapa.get("cpf")))
         cpf = normalizar_cpf(cpf_bruto)
+        nota_cpf = None
         if cpf_bruto and not cpf:
-            rel.aviso(caminho, f"linha {n}: CPF inválido '{cpf_bruto}' de {nome} descartado.")
+            if re.search(r"\d{5}", cpf_bruto):
+                rel.aviso(f"CONSULENTE linha {n}: CPF inválido '{cpf_bruto}' de {nome_proprio(nome)}.")
+            # 'CRIANÇA', '14 ANOS', 'NÃO SABE': guarda como observação
+            nota_cpf = f"CPF na planilha: {cpf_bruto}"
 
-        consulente = Consulente.query.filter_by(cpf=cpf).first() if cpf else None
-        if consulente and consulente.nome_chave != chave(nome):
-            rel.aviso(caminho, f"linha {n}: CPF de {nome} já pertence a {consulente.nome}; dados mesclados.")
-        if consulente is None:
-            candidatos = Consulente.query.filter_by(nome_chave=chave(nome)).all()
-            # homônimo com CPF diferente é outra pessoa
-            candidatos = [c for c in candidatos if not (cpf and c.cpf and c.cpf != cpf)]
-            consulente = candidatos[0] if candidatos else None
-        if consulente is None:
-            consulente = Consulente(nome=nome)
-            db.session.add(consulente)
-            rel.conta("consulentes criados")
+        pessoa = Pessoa.query.filter_by(cpf=cpf).first() if cpf else None
+        if pessoa and pessoa.nome_chave != chave(nome):
+            # mesmo CPF com outro nome: pode ser erro de digitação ou CPF de um parente
+            rel.aviso(f"CONSULENTE linha {n}: CPF de {nome_proprio(nome)} já pertence a "
+                      f"{pessoa.nome}; cadastrado(a) sem CPF para conferência.")
+            pessoa, cpf = None, None
+        pessoa = pessoa or encontrar_pessoa(nome)
+        if pessoa is None:
+            pessoa = _criar_pessoa(nome, "Consulente", rel)
         else:
-            rel.conta("consulentes atualizados")
+            rel.conta("consulentes já existentes (completados)")
 
+        cidade = util(_celula(linha, mapa.get("cidade")))
+        outra_casa = util(_celula(linha, mapa.get("outra_casa")))
+        if outra_casa and re.fullmatch(r"[\d.]+", outra_casa):
+            outra_casa = None
+        if outra_casa and chave(outra_casa) == "sim":
+            outra_casa = "Sim (não informou qual)"
         dados = {
             "cpf": cpf,
-            "telefone": normalizar_telefone(_celula(linha, mapa.get("telefone"))),
-            "email": (valor(_celula(linha, mapa.get("email"))) or "").lower() or None,
-            "cidade": nome_proprio(valor(_celula(linha, mapa.get("cidade")))),
-            "uf": (valor(_celula(linha, mapa.get("uf"))) or "").upper()[:2] or None,
-            "bairro": nome_proprio(valor(_celula(linha, mapa.get("bairro")))),
-            "endereco": valor(_celula(linha, mapa.get("endereco"))),
-            "data_nascimento": ler_data(_celula(linha, mapa.get("data_nascimento"))),
-            "observacoes": valor(_celula(linha, mapa.get("observacoes"))),
+            "telefone": normalizar_telefone(texto(_celula(linha, mapa.get("telefone")))),
+            "cidade": CIDADES.get(chave(cidade), nome_proprio(cidade)) if cidade else None,
+            "outra_casa": outra_casa,
+            "como_soube": util(_celula(linha, mapa.get("como_soube"))),
+            "observacoes": nota_cpf,
         }
-        nasc_bruto = valor(_celula(linha, mapa.get("data_nascimento")))
-        if nasc_bruto and not dados["data_nascimento"]:
-            rel.aviso(caminho, f"linha {n}: data de nascimento '{nasc_bruto}' não reconhecida.")
-        # só preenche o que está vazio: não apaga dados digitados no sistema
-        for campo, novo in dados.items():
-            if novo and not getattr(consulente, campo):
-                setattr(consulente, campo, novo)
+        # só preenche o que está vazio: não apaga o que foi digitado no sistema
+        for campo_nome, novo in dados.items():
+            if novo and not getattr(pessoa, campo_nome):
+                setattr(pessoa, campo_nome, novo)
         db.session.flush()
 
-
-def _cabecalho_de_linhas(linha):
-    """Se a linha for um cabeçalho com colunas de linhas de trabalho, devolve o mapa."""
-    colunas = {}
-    for i, celula in enumerate(linha):
-        nome_linha = linha_do_cabecalho(celula)
-        if nome_linha and nome_linha not in colunas.values():
-            colunas[i] = nome_linha
-    return colunas
+        parentesco = util(_celula(linha, mapa.get("parentesco")))
+        if parentesco and chave(parentesco) not in {"sim"}:
+            pessoa.parentesco_informado = pessoa.parentesco_informado or parentesco
+            _vincular_parentes(pessoa, parentesco, mediuns, rel)
+    db.session.flush()
 
 
-def _dividir(texto):
-    return [p.strip() for p in re.split(r"[/;,]", texto) if p.strip()]
-
-
-def importar_retorno_mediuns(caminho, cad, rel):
-    linhas = ler_csv(caminho)
-    colunas, col_nome, grupo = None, None, "Corrente"
-    for n, linha in enumerate(linhas, start=1):
-        possivel = _cabecalho_de_linhas(linha)
-        if len(possivel) >= 2:
-            colunas = possivel
-            col_nome = next(
-                (i for i, c in enumerate(linha) if chave(c) in _NOME_MEDIUM),
-                next((i for i, c in enumerate(linha) if valor(c)), 0),
-            )
-            grupo = _BLOCOS.get(chave(linha[col_nome]), grupo)
-            if grupo == "Consulente":
-                grupo = "Corrente"
+def _vincular_parentes(pessoa, textual, mediuns, rel):
+    partes = re.split(r"\s*(?:,|/|;|-|\be\b|\+)\s*", chave(textual))
+    for parte in filter(None, (p.strip() for p in partes)):
+        medium, ambiguo, aproximado = _referencia_medium(parte, mediuns)
+        if medium is None or medium.id == pessoa.id:
+            motivo = "mais de um médium possível" if ambiguo else "nenhum médium com esse nome"
+            rel.pendencia("Parentescos não identificados (cadastre no prontuário)",
+                          f"{pessoa.nome}: '{parte}' ({motivo})")
             continue
-        if colunas is None:
-            continue
-        nome = valor(_celula(linha, col_nome))
-        if not nome:
-            continue
-        medium = cad.medium(nome, grupo)
-        for i, nome_linha in colunas.items():
-            conteudo = valor(_celula(linha, i))
-            if not conteudo or cad.linhas[nome_linha].servico:
-                continue
-            for parte in _dividir(conteudo):
-                if chave(parte) in {"x", "geral", "sim", "ok"}:
-                    continue
-                cad.vincular(medium, cad.entidade(parte, cad.linhas[nome_linha]))
-    if colunas is None:
-        rel.aviso(caminho, "nenhum cabeçalho com linhas de trabalho (Caboclo, Exu...) encontrado.")
-
-
-def _resolver_manifestacao(texto, linha, cad, rel, caminho):
-    """Transforma o texto de uma célula numa Manifestacao (sem salvar)."""
-    m = Manifestacao(linha=linha)
-    if linha.servico:
-        m.descricao = corrigir(texto)
-        return m
-    m.descricao = limpar(texto)
-    if chave(texto) == "geral":
-        m.geral = True
-        return m
-
-    # entidade já cadastrada nesta linha tem prioridade sobre nomes de médiuns
-    m.entidade = cad.entidade(texto, linha, criar=False)
-    if m.entidade:
-        quem = [v.medium for v in m.entidade.mediuns]
-        if len(quem) == 1:
-            m.medium_responsavel = quem[0]
-        return m
-
-    medium, ambiguo = cad.medium_por_referencia(texto)
-    if medium:
-        m.medium_responsavel = medium
-        do_medium = [v.entidade for v in medium.entidades if v.entidade.linha_id == linha.id]
-        if len(do_medium) == 1:
-            m.entidade = do_medium[0]
-        return m
-    if ambiguo:
-        rel.aviso(caminho, f"'{texto.strip()}' ({linha.nome}) pode ser mais de um médium; mantido só o texto.")
-        return m
-
-    m.entidade = cad.entidade(texto, linha)
-    quem = [v.medium for v in m.entidade.mediuns]
-    if len(quem) == 1:
-        m.medium_responsavel = quem[0]
-    return m
-
-
-def importar_sessao(caminho, cad, rel, substituir=False):
-    data_sessao = data_do_arquivo(caminho)
-    if data_sessao is None:
-        rel.aviso(caminho, "data não encontrada no nome do arquivo (esperado DD_MM_AAAA).")
-        return
-    sessao = _sessao(data_sessao)
-    if sessao.atendimentos:
-        if not substituir:
-            rel.aviso(caminho, f"sessão de {data_sessao:%d/%m/%Y} já tem atendimentos; ignorada "
-                               "(use --substituir para reimportar).")
-            return
-        for at in list(sessao.atendimentos):
-            db.session.delete(at)
-        db.session.flush()
-    rel.conta("sessões importadas")
-
-    linhas = ler_csv(caminho)
-    # 1ª passada: cadastra todas as pessoas, para que referências a médiuns
-    # nas colunas de linha (ex.: 'Pablo') encontrem quem está nesta mesma gira.
-    registros = []
-    bloco = None
-    for n, linha in enumerate(linhas, start=1):
-        titulo = next(((i, _BLOCOS[chave(c)]) for i, c in enumerate(linha) if chave(c) in _BLOCOS), None)
-        colunas = _cabecalho_de_linhas(linha)
-        if titulo and colunas:
-            mapa = {chave(c): i for i, c in enumerate(linha)}
-            bloco = {
-                "categoria": titulo[1],
-                "col_nome": titulo[0],
-                "col_parentesco": mapa.get("parentesco"),
-                "col_retorno": mapa.get("retorno"),
-                "colunas": colunas,
-            }
-            continue
-        if bloco is None:
-            continue
-        nome = valor(_celula(linha, bloco["col_nome"]))
-        if not nome:
-            continue
-        if bloco["categoria"] == "Consulente":
-            pessoa = cad.consulente(nome, caminho)
-        else:
-            pessoa = cad.medium(nome, bloco["categoria"])
-        registros.append((n, linha, bloco, pessoa))
-
-    # 2ª passada: atendimentos e manifestações
-    ja_lancados = {}  # pessoa -> atendimento (a mesma pessoa pode aparecer 2x na planilha)
-    for n, linha, bloco, pessoa in registros:
-        retorno = corrigir(_celula(linha, bloco["col_retorno"]))
-        parentesco = valor(_celula(linha, bloco["col_parentesco"]))  # texto livre: mantido
-        at = ja_lancados.get(pessoa)
-        if at is None:
-            pessoa_kw = {"consulente": pessoa} if isinstance(pessoa, Consulente) else {"medium": pessoa}
-            at = Atendimento(sessao=sessao, categoria=bloco["categoria"], parentesco=parentesco,
-                             retorno=retorno, **pessoa_kw)
-            db.session.add(at)
-            ja_lancados[pessoa] = at
-            rel.conta("atendimentos")
-        else:
-            rel.aviso(caminho, f"linha {n}: {pessoa.nome} aparece mais de uma vez; linhas juntadas.")
-            at.retorno = at.retorno or retorno
-            at.parentesco = at.parentesco or parentesco
-        if isinstance(pessoa, Medium):
-            cad.presenca(sessao, pessoa)
-        linhas_usadas = {m.linha.nome for m in at.manifestacoes}
-        for i, nome_linha in bloco["colunas"].items():
-            texto = valor(_celula(linha, i))
-            if texto and nome_linha not in linhas_usadas:
-                manif = _resolver_manifestacao(texto, cad.linhas[nome_linha], cad, rel, caminho)
-                at.manifestacoes.append(manif)
-                rel.conta("manifestações")
-                if manif.medium_responsavel:
-                    cad.presenca(sessao, manif.medium_responsavel)
-        db.session.flush()
-
-
-def importar_presenca(caminho, cad, rel, ano_padrao=None):
-    linhas = ler_csv(caminho)
-    ano_padrao = ano_padrao or date.today().year
-    for i, cab in enumerate(linhas[:20]):
-        col_nome = next((j for j, c in enumerate(cab) if chave(c) in _NOME_MEDIUM), None)
-        if col_nome is None:
-            continue
-        mapa = {chave(c): j for j, c in enumerate(cab)}
-        col_data = mapa.get("data")
-        col_status = next((mapa[k] for k in ("presente", "presenca", "status", "situacao") if k in mapa), None)
-        col_grupo = mapa.get("grupo")
-        if col_data is not None and col_status is not None:
-            _presenca_longa(linhas[i + 1:], col_nome, col_data, col_status, col_grupo, cad, rel, caminho, ano_padrao)
-        else:
-            datas = {j: ler_data(c, ano_padrao) for j, c in enumerate(cab) if j != col_nome}
-            datas = {j: d for j, d in datas.items() if d}
-            if not datas:
-                rel.aviso(caminho, "nenhuma coluna de data encontrada no cabeçalho.")
-                return
-            if any(not re.search(r"\d{4}|\d{1,2}/\d{1,2}/\d{2}$", cab[j]) for j in datas):
-                rel.aviso(caminho, f"datas sem ano no cabeçalho; assumido {ano_padrao} (use --ano).")
-            for n, linha in enumerate(linhas[i + 1:], start=i + 2):
-                nome = valor(_celula(linha, col_nome))
-                if not nome:
-                    continue
-                grupo = _BLOCOS.get(chave(_celula(linha, col_grupo)))
-                medium = cad.medium(nome, grupo if grupo != "Consulente" else None)
-                for j, d in datas.items():
-                    _registrar_status(_celula(linha, j), d, medium, cad, rel, caminho, n)
-        return
-    rel.aviso(caminho, "cabeçalho com coluna de nome do médium não encontrado; arquivo ignorado.")
-
-
-def _presenca_longa(linhas, col_nome, col_data, col_status, col_grupo, cad, rel, caminho, ano_padrao):
-    for n, linha in enumerate(linhas, start=2):
-        nome = valor(_celula(linha, col_nome))
-        d = ler_data(_celula(linha, col_data), ano_padrao)
-        if not nome:
-            continue
-        if not d:
-            rel.aviso(caminho, f"linha {n}: data inválida para {nome}.")
-            continue
-        grupo = _BLOCOS.get(chave(_celula(linha, col_grupo)))
-        medium = cad.medium(nome, grupo if grupo != "Consulente" else None)
-        _registrar_status(_celula(linha, col_status), d, medium, cad, rel, caminho, n)
-
-
-def _registrar_status(texto, d, medium, cad, rel, caminho, n):
-    texto = valor(texto)
-    if not texto:
-        return
-    k = chave(texto)
-    if k in PRESENTE:
-        presente, justificativa = True, None
-    elif k in JUSTIFICADA:
-        presente, justificativa = False, "Falta justificada"
-    elif k in FALTA:
-        presente, justificativa = False, None
-    else:
-        rel.aviso(caminho, f"linha {n}: marcação de presença '{texto}' não reconhecida ({medium.nome}).")
-        return
-    cad.presenca(_sessao(d), medium, presente, justificativa, sobrescrever=True)
+        if not Parentesco.entre(pessoa.id, medium.id):
+            Parentesco.criar(pessoa, medium, "Parente", observacao=f"{ORIGEM}: {textual}",
+                             responsavel=ORIGEM)
+            db.session.flush()
+            rel.conta("parentescos vinculados")
+            if aproximado:
+                rel.pendencia("Parentescos vinculados por grafia parecida (confira)",
+                              f"{pessoa.nome}: '{parte}' -> {medium.nome}")
 
 
 # ---------------------------------------------------------------------------
@@ -641,47 +560,19 @@ def _registrar_status(texto, d, medium, cad, rel, caminho, n):
 # ---------------------------------------------------------------------------
 
 
-def classificar(caminho):
-    k = chave(Path(caminho).stem).replace(" ", "_")
-    if "consulente" in k:
-        return "consulentes"
-    if "retorno" in k and "medi" in k:
-        return "retorno"
-    if "presen" in k:
-        return "presenca"
-    if data_do_arquivo(caminho):
-        return "sessao"
-    return None
-
-
-def importar(caminhos, substituir=False, ano=None):
-    """Importa arquivos/pastas. Tudo numa transação: em caso de erro nada é gravado."""
+def importar(caminho):
+    """Importa os cadastros. Tudo numa transação: em caso de erro nada é gravado."""
     garantir_linhas_padrao()
-    arquivos = []
-    for c in caminhos:
-        c = Path(c)
-        arquivos += sorted(c.glob("*.csv")) if c.is_dir() else [c]
-
+    abas = ler_planilha(caminho)
     rel = Relatorio()
-    grupos = {"consulentes": [], "retorno": [], "sessao": [], "presenca": []}
-    for arq in arquivos:
-        tipo = classificar(arq)
-        if tipo is None:
-            rel.aviso(arq, "nome de arquivo não reconhecido; ignorado.")
-        else:
-            grupos[tipo].append(arq)
-    grupos["sessao"].sort(key=data_do_arquivo)
-
-    cad = Cadastros(rel)
+    reconhecidas = [a for a in abas if a in ABAS]
+    rel.conta("abas usadas", len(reconhecidas))
+    linhas_db = {l.nome: l for l in Linha.query.all()}
     try:
-        for arq in grupos["consulentes"]:
-            importar_consulentes(arq, cad, rel)
-        for arq in grupos["retorno"]:
-            importar_retorno_mediuns(arq, cad, rel)
-        for arq in grupos["sessao"]:
-            importar_sessao(arq, cad, rel, substituir=substituir)
-        for arq in grupos["presenca"]:
-            importar_presenca(arq, cad, rel, ano_padrao=ano)
+        importar_categorias(abas, rel)
+        importar_ficha(abas, rel, linhas_db)
+        importar_apelidos(abas, rel)
+        importar_consulentes(abas, rel)
         db.session.commit()
     except Exception:
         db.session.rollback()

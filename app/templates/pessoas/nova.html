@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, campo_pessoa %}
+{% block titulo %}Cadastro rápido{% endblock %}
+{% block conteudo %}
+<h1 class="h3 mb-3">Cadastro rápido</h1>
+<form method="post">
+  {{ csrf() }}
+  <div class="mb-3">
+    <label class="form-label d-block">Categoria</label>
+    <div class="row g-2" role="group">
+      {% for c in categorias %}
+        <div class="col-6 col-md-3">
+          <input type="radio" class="btn-check" name="categoria" id="cat{{ loop.index }}" value="{{ c }}"
+                 {% if form.get('categoria', p.categoria) == c %}checked{% endif %}>
+          <label class="btn btn-outline-success w-100" for="cat{{ loop.index }}">{{ c }}</label>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% include "pessoas/_campos_dados.html" %}
+
+  <h2 class="h6 mt-4">Parente na casa <small class="text-muted fw-normal">(não pode conversar com as entidades desse médium)</small></h2>
+  <div class="row g-2">
+    <div class="col-12 col-md-8">{{ campo_pessoa('parente', pessoas, form.get('parente', ''), 'Opcional: digite o nome do parente') }}</div>
+    <div class="col-12 col-md-4">
+      <select class="form-select" name="tipo_parentesco">
+        {% for t in tipos_parentesco %}<option {% if form.get('tipo_parentesco') == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <p class="form-text">Mais parentes podem ser adicionados depois, no prontuário.</p>
+
+  <div class="form-check mt-2">
+    <input class="form-check-input" type="checkbox" name="confirmar_homonimo" id="homonimo" {% if form.get('confirmar_homonimo') %}checked{% endif %}>
+    <label class="form-check-label small" for="homonimo">É outra pessoa com o mesmo nome de alguém já cadastrado</label>
+  </div>
+
+  <div class="barra-acoes">
+    <button class="btn btn-success btn-lg" name="acao" value="salvar">Salvar</button>
+    <button class="btn btn-outline-success btn-lg" name="acao" value="outro">Salvar e cadastrar outro</button>
+    <a class="btn btn-link" href="{{ url_for('pessoas.lista') }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,27 +1,24 @@
-"""Modelo relacional do TUC7FJ.
+"""Modelo de dados do TUC7FJ — Fase 1 (cadastros e ficha espiritual).
 
 Visão geral
 -----------
-- ``Medium``         membros da casa (Corrente, Auxiliares, Colaboradores).
-- ``Consulente``     visitantes atendidos nas giras.
-- ``Linha``          linhas de trabalho (Caboclo, Exu, Preto Velho...). Também
-                     inclui os "serviços" das planilhas (7 Flechas, Maca).
-- ``Entidade``       guias espirituais, sempre pertencentes a uma linha.
-- ``MediumEntidade`` quais entidades cada médium trabalha (RETORNO_MEDIUNS).
-- ``Sessao``         uma gira/sessão em uma data.
-- ``Presenca``       presença de cada médium em uma sessão.
-- ``Atendimento``    uma pessoa (consulente ou médium) atendida numa sessão,
-                     com parentesco/retorno — equivale a uma linha da planilha.
-- ``Manifestacao``   cada célula preenchida das colunas de linha: qual entidade
-                     (e/ou médium de qual entidade) atendeu naquela linha.
-- ``Usuario``        quem pode entrar no sistema.
+- ``Pessoa``              qualquer pessoa da casa ou do público. A mesma pessoa
+                          evolui: Consulente -> Colaborador -> Auxiliar -> Corrente.
+- ``PessoaFuncao``        funções exercidas (Cambone, Ogã).
+- ``HistoricoCategoria``  cada mudança de categoria, com data.
+- ``Parentesco``          laço entre duas pessoas. Quem é parente de um médium
+                          não pode conversar com as entidades dele.
+- ``Linha``               linhas de trabalho (Caboclo, Preto Velho, Exu...).
+- ``Entidade``            guia que um médium incorpora numa linha. Sem nome
+                          ainda? Fica identificada pelo médium ("Exu da Jessica").
+- ``Configuracao``        parâmetros da casa (senha de acesso).
 
 Uso simultâneo: os registros editáveis têm a coluna ``versao`` (controle
 otimista do SQLAlchemy). Se dois aparelhos abrem o mesmo cadastro e ambos
 salvam, o segundo é avisado em vez de apagar sem perceber o que o primeiro fez.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy.orm import declared_attr
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -29,7 +26,10 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .extensions import db
 from .utils import chave
 
-GRUPOS_MEDIUM = ["Corrente", "Auxiliar", "Colaborador"]
+CATEGORIAS = ["Consulente", "Colaborador", "Auxiliar", "Corrente"]
+# categorias que formam o corpo mediúnico da casa (fazem chamada na gira)
+CATEGORIAS_MEDIUNS = ["Colaborador", "Auxiliar", "Corrente"]
+FUNCOES = ["Cambone", "Ogã"]
 
 
 class TimestampMixin:
@@ -37,6 +37,8 @@ class TimestampMixin:
     atualizado_em = db.Column(
         db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False
     )
+    # nome do responsável do dia que fez o último lançamento
+    atualizado_por = db.Column(db.String(100))
 
 
 class VersaoMixin:
@@ -50,56 +52,36 @@ class VersaoMixin:
         return {"version_id_col": cls.versao}
 
 
-class Medium(VersaoMixin, TimestampMixin, db.Model):
-    __tablename__ = "mediuns"
-
-    id = db.Column(db.Integer, primary_key=True)
-    nome = db.Column(db.String(150), nullable=False)
-    nome_chave = db.Column(db.String(150), nullable=False, unique=True, index=True)
-    apelido = db.Column(db.String(60))  # ex.: "Thiago DV", como aparece nas planilhas
-    grupo = db.Column(db.String(20), nullable=False, default="Corrente")
-    telefone = db.Column(db.String(20))
-    ativo = db.Column(db.Boolean, nullable=False, default=True)
-    observacoes = db.Column(db.Text)
-
-    entidades = db.relationship(
-        "MediumEntidade", back_populates="medium", cascade="all, delete-orphan"
-    )
-    presencas = db.relationship(
-        "Presenca", back_populates="medium", cascade="all, delete-orphan"
-    )
-    atendimentos = db.relationship(
-        "Atendimento", back_populates="medium", foreign_keys="Atendimento.medium_id",
-        cascade="all, delete-orphan", passive_deletes=True,
-    )
-
-    @db.validates("nome")
-    def _set_chave(self, _key, nome):
-        self.nome_chave = chave(nome)
-        return nome
-
-    def __repr__(self):
-        return f"<Medium {self.nome}>"
-
-
-class Consulente(VersaoMixin, TimestampMixin, db.Model):
-    __tablename__ = "consulentes"
+class Pessoa(VersaoMixin, TimestampMixin, db.Model):
+    __tablename__ = "pessoas"
 
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(150), nullable=False)
     nome_chave = db.Column(db.String(150), nullable=False, index=True)
+    # como a pessoa é chamada na casa ("Pai Igor", "Thiago DV")
+    apelido = db.Column(db.String(60))
     cpf = db.Column(db.String(11), unique=True)  # só dígitos
     data_nascimento = db.Column(db.Date)
     telefone = db.Column(db.String(20))
-    email = db.Column(db.String(120))
-    endereco = db.Column(db.String(200))
-    bairro = db.Column(db.String(80))
     cidade = db.Column(db.String(80))
-    uf = db.Column(db.String(2))
+    outra_casa = db.Column(db.String(150))  # vínculo com outra casa/religião
+    como_soube = db.Column(db.String(150))
+    # texto do parentesco como veio da planilha, para conferência
+    parentesco_informado = db.Column(db.String(150))
+    categoria = db.Column(db.String(20), nullable=False, default="Consulente")
+    incorpora = db.Column(db.Boolean, nullable=False, default=False)
+    ativo = db.Column(db.Boolean, nullable=False, default=True)
     observacoes = db.Column(db.Text)
 
-    atendimentos = db.relationship(
-        "Atendimento", back_populates="consulente", cascade="all, delete-orphan", passive_deletes=True
+    funcoes = db.relationship(
+        "PessoaFuncao", back_populates="pessoa", cascade="all, delete-orphan"
+    )
+    historico = db.relationship(
+        "HistoricoCategoria", back_populates="pessoa", cascade="all, delete-orphan",
+        order_by="(HistoricoCategoria.data.desc(), HistoricoCategoria.id.desc())",
+    )
+    entidades = db.relationship(
+        "Entidade", back_populates="medium", cascade="all, delete-orphan",
     )
 
     @db.validates("nome")
@@ -107,8 +89,116 @@ class Consulente(VersaoMixin, TimestampMixin, db.Model):
         self.nome_chave = chave(nome)
         return nome
 
+    @property
+    def eh_medium(self):
+        return self.categoria in CATEGORIAS_MEDIUNS
+
+    @property
+    def nome_curto(self):
+        return self.apelido or self.nome.split(" ")[0]
+
+    @property
+    def nomes_funcoes(self):
+        return sorted(f.funcao for f in self.funcoes)
+
+    def tem_funcao(self, funcao):
+        return any(f.funcao == funcao for f in self.funcoes)
+
+    def mudar_categoria(self, nova, quando=None, observacao=None, responsavel=None):
+        """Troca a categoria guardando o histórico. Devolve False se não mudou."""
+        if nova == self.categoria:
+            return False
+        self.historico.append(HistoricoCategoria(
+            de=self.categoria, para=nova, data=quando or date.today(),
+            observacao=observacao, registrado_por=responsavel,
+        ))
+        self.categoria = nova
+        return True
+
     def __repr__(self):
-        return f"<Consulente {self.nome}>"
+        return f"<Pessoa {self.nome} ({self.categoria})>"
+
+
+class PessoaFuncao(db.Model):
+    __tablename__ = "pessoa_funcoes"
+    __table_args__ = (db.UniqueConstraint("pessoa_id", "funcao"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    pessoa_id = db.Column(
+        db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False
+    )
+    funcao = db.Column(db.String(30), nullable=False)
+    desde = db.Column(db.Date)
+
+    pessoa = db.relationship("Pessoa", back_populates="funcoes")
+
+
+class HistoricoCategoria(db.Model):
+    __tablename__ = "historico_categorias"
+
+    id = db.Column(db.Integer, primary_key=True)
+    pessoa_id = db.Column(
+        db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False
+    )
+    de = db.Column(db.String(20))
+    para = db.Column(db.String(20), nullable=False)
+    data = db.Column(db.Date, nullable=False, default=date.today)
+    observacao = db.Column(db.String(200))
+    registrado_por = db.Column(db.String(100))
+    registrado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    pessoa = db.relationship("Pessoa", back_populates="historico")
+
+
+class Parentesco(db.Model):
+    """Laço entre duas pessoas, guardado uma única vez (pessoa_a_id < pessoa_b_id)."""
+
+    __tablename__ = "parentescos"
+    __table_args__ = (
+        db.UniqueConstraint("pessoa_a_id", "pessoa_b_id"),
+        db.CheckConstraint("pessoa_a_id < pessoa_b_id", name="ck_parentesco_ordem"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    pessoa_a_id = db.Column(
+        db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False
+    )
+    pessoa_b_id = db.Column(
+        db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False
+    )
+    tipo = db.Column(db.String(60), nullable=False, default="Parente")
+    observacao = db.Column(db.String(200))
+    registrado_por = db.Column(db.String(100))
+    registrado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    pessoa_a = db.relationship("Pessoa", foreign_keys=[pessoa_a_id])
+    pessoa_b = db.relationship("Pessoa", foreign_keys=[pessoa_b_id])
+
+    def outra(self, pessoa):
+        return self.pessoa_b if self.pessoa_a_id == pessoa.id else self.pessoa_a
+
+    @staticmethod
+    def entre(pessoa1_id, pessoa2_id):
+        a, b = sorted((pessoa1_id, pessoa2_id))
+        return Parentesco.query.filter_by(pessoa_a_id=a, pessoa_b_id=b).first()
+
+    @staticmethod
+    def de(pessoa):
+        return Parentesco.query.filter(
+            (Parentesco.pessoa_a_id == pessoa.id) | (Parentesco.pessoa_b_id == pessoa.id)
+        ).all()
+
+    @staticmethod
+    def criar(pessoa1, pessoa2, tipo="Parente", observacao=None, responsavel=None):
+        """Cria o laço se ainda não existir; devolve o registro (novo ou existente)."""
+        existente = Parentesco.entre(pessoa1.id, pessoa2.id)
+        if existente:
+            return existente
+        a, b = sorted((pessoa1, pessoa2), key=lambda p: p.id)
+        laco = Parentesco(pessoa_a=a, pessoa_b=b, tipo=tipo, observacao=observacao,
+                          registrado_por=responsavel)
+        db.session.add(laco)
+        return laco
 
 
 class Linha(db.Model):
@@ -117,228 +207,91 @@ class Linha(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome = db.Column(db.String(60), nullable=False, unique=True)
     ordem = db.Column(db.Integer, nullable=False, default=0)
-    # "servico" = colunas como 7 Flechas/Maca, cujo conteúdo é o tipo de trabalho
-    # (Orientação Espiritual, Consagrar Pano...) e não o nome de uma entidade.
-    servico = db.Column(db.Boolean, nullable=False, default=False)
 
-    entidades = db.relationship("Entidade", back_populates="linha", order_by="Entidade.nome")
+    entidades = db.relationship("Entidade", back_populates="linha")
 
     def __repr__(self):
         return f"<Linha {self.nome}>"
 
 
 class Entidade(VersaoMixin, db.Model):
+    """Guia que um médium incorpora numa linha."""
+
     __tablename__ = "entidades"
-    __table_args__ = (db.UniqueConstraint("linha_id", "nome_chave"),)
+    __table_args__ = (db.UniqueConstraint("medium_id", "linha_id", "nome_chave"),)
 
     id = db.Column(db.Integer, primary_key=True)
-    nome = db.Column(db.String(100), nullable=False)
-    nome_chave = db.Column(db.String(100), nullable=False, index=True)
+    medium_id = db.Column(
+        db.Integer, db.ForeignKey("pessoas.id", ondelete="CASCADE"), nullable=False
+    )
     linha_id = db.Column(db.Integer, db.ForeignKey("linhas.id"), nullable=False)
+    # vazio enquanto a entidade não deu o nome
+    nome = db.Column(db.String(100))
+    nome_chave = db.Column(db.String(100), nullable=False, default="")
+    ativa = db.Column(db.Boolean, nullable=False, default=True)
     observacoes = db.Column(db.Text)
 
+    medium = db.relationship("Pessoa", back_populates="entidades")
     linha = db.relationship("Linha", back_populates="entidades")
-    mediuns = db.relationship(
-        "MediumEntidade", back_populates="entidade", cascade="all, delete-orphan"
-    )
 
     @db.validates("nome")
     def _set_chave(self, _key, nome):
         self.nome_chave = chave(nome)
         return nome
 
-    def __repr__(self):
-        return f"<Entidade {self.nome} ({self.linha_id})>"
-
-
-class MediumEntidade(db.Model):
-    __tablename__ = "medium_entidades"
-    __table_args__ = (db.UniqueConstraint("medium_id", "entidade_id"),)
-
-    id = db.Column(db.Integer, primary_key=True)
-    medium_id = db.Column(
-        db.Integer, db.ForeignKey("mediuns.id", ondelete="CASCADE"), nullable=False
-    )
-    entidade_id = db.Column(
-        db.Integer, db.ForeignKey("entidades.id", ondelete="CASCADE"), nullable=False
-    )
-
-    medium = db.relationship("Medium", back_populates="entidades")
-    entidade = db.relationship("Entidade", back_populates="mediuns")
-
-
-class Sessao(VersaoMixin, TimestampMixin, db.Model):
-    __tablename__ = "sessoes"
-
-    id = db.Column(db.Integer, primary_key=True)
-    data = db.Column(db.Date, nullable=False, index=True)
-    tipo = db.Column(db.String(60), nullable=False, default="Gira")
-    descricao = db.Column(db.String(200))
-    observacoes = db.Column(db.Text)
-
-    presencas = db.relationship(
-        "Presenca", back_populates="sessao", cascade="all, delete-orphan"
-    )
-    atendimentos = db.relationship(
-        "Atendimento",
-        back_populates="sessao",
-        cascade="all, delete-orphan",
-        order_by="Atendimento.id",
-    )
-
-    def __repr__(self):
-        return f"<Sessao {self.data} {self.tipo}>"
-
-
-class Presenca(db.Model):
-    __tablename__ = "presencas"
-    __table_args__ = (db.UniqueConstraint("sessao_id", "medium_id"),)
-
-    id = db.Column(db.Integer, primary_key=True)
-    sessao_id = db.Column(
-        db.Integer, db.ForeignKey("sessoes.id", ondelete="CASCADE"), nullable=False
-    )
-    medium_id = db.Column(
-        db.Integer, db.ForeignKey("mediuns.id", ondelete="CASCADE"), nullable=False
-    )
-    presente = db.Column(db.Boolean, nullable=False, default=True)
-    justificativa = db.Column(db.String(200))
-
-    sessao = db.relationship("Sessao", back_populates="presencas")
-    medium = db.relationship("Medium", back_populates="presencas")
-
-
-# Categoria do atendido, igual aos blocos da planilha de sessão.
-CATEGORIAS_ATENDIMENTO = ["Corrente", "Auxiliar", "Colaborador", "Consulente"]
-
-
-class Atendimento(VersaoMixin, TimestampMixin, db.Model):
-    __tablename__ = "atendimentos"
-    __table_args__ = (
-        db.CheckConstraint(
-            "(consulente_id IS NULL) <> (medium_id IS NULL)",
-            name="ck_atendimento_uma_pessoa",
-        ),
-        # uma pessoa tem no máximo um atendimento por sessão: evita que dois
-        # aparelhos registrem o mesmo consulente ao mesmo tempo
-        db.Index("ux_atendimento_consulente", "sessao_id", "consulente_id", unique=True,
-                 sqlite_where=db.text("consulente_id IS NOT NULL")),
-        db.Index("ux_atendimento_medium", "sessao_id", "medium_id", unique=True,
-                 sqlite_where=db.text("medium_id IS NOT NULL")),
-    )
-
-    id = db.Column(db.Integer, primary_key=True)
-    sessao_id = db.Column(
-        db.Integer, db.ForeignKey("sessoes.id", ondelete="CASCADE"), nullable=False
-    )
-    categoria = db.Column(db.String(20), nullable=False, default="Consulente")
-    # exatamente um dos dois: quem foi atendido
-    consulente_id = db.Column(db.Integer, db.ForeignKey("consulentes.id", ondelete="CASCADE"))
-    medium_id = db.Column(db.Integer, db.ForeignKey("mediuns.id", ondelete="CASCADE"))
-    parentesco = db.Column(db.String(150))
-    retorno = db.Column(db.String(150))
-    observacoes = db.Column(db.Text)
-    atualizado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id", ondelete="SET NULL"))
-
-    sessao = db.relationship("Sessao", back_populates="atendimentos")
-    atualizado_por = db.relationship("Usuario")
-    consulente = db.relationship("Consulente", back_populates="atendimentos")
-    medium = db.relationship("Medium", foreign_keys=[medium_id], back_populates="atendimentos")
-    manifestacoes = db.relationship(
-        "Manifestacao", back_populates="atendimento", cascade="all, delete-orphan"
-    )
-
-    @property
-    def pessoa_nome(self):
-        pessoa = self.consulente or self.medium
-        return pessoa.nome if pessoa else "?"
-
-
-class Manifestacao(db.Model):
-    """Uma célula preenchida das colunas de linha na planilha da sessão.
-
-    ``descricao`` guarda sempre o texto original; ``entidade`` e
-    ``medium_responsavel`` são preenchidos quando é possível identificar quem
-    atendeu (pelo nome da entidade ou pelo nome do médium). ``geral`` marca o
-    valor "GERAL" (qualquer entidade daquela linha).
-    """
-
-    __tablename__ = "manifestacoes"
-
-    id = db.Column(db.Integer, primary_key=True)
-    atendimento_id = db.Column(
-        db.Integer, db.ForeignKey("atendimentos.id", ondelete="CASCADE"), nullable=False
-    )
-    linha_id = db.Column(db.Integer, db.ForeignKey("linhas.id"), nullable=False)
-    entidade_id = db.Column(db.Integer, db.ForeignKey("entidades.id", ondelete="SET NULL"))
-    medium_responsavel_id = db.Column(
-        db.Integer, db.ForeignKey("mediuns.id", ondelete="SET NULL")
-    )
-    geral = db.Column(db.Boolean, nullable=False, default=False)
-    descricao = db.Column(db.String(150))
-
-    atendimento = db.relationship("Atendimento", back_populates="manifestacoes")
-    linha = db.relationship("Linha")
-    entidade = db.relationship("Entidade")
-    medium_responsavel = db.relationship("Medium")
-
     @property
     def rotulo(self):
-        partes = []
-        if self.geral:
-            partes.append("Geral")
-        if self.entidade:
-            partes.append(self.entidade.nome)
-        if self.medium_responsavel:
-            partes.append(f"({self.medium_responsavel.apelido or self.medium_responsavel.nome})")
-        if not partes:
-            partes.append(self.descricao or "")
-        return " ".join(partes)
+        """Nome para exibir: 'Juruá' ou, sem nome, 'Exu da Jessica'."""
+        if self.nome:
+            return self.nome
+        return f"{self.linha.nome} de {self.medium.nome_curto}"
+
+    def __repr__(self):
+        return f"<Entidade {self.rotulo}>"
 
 
-class Usuario(db.Model):
-    __tablename__ = "usuarios"
+class Configuracao(db.Model):
+    __tablename__ = "configuracoes"
 
-    id = db.Column(db.Integer, primary_key=True)
-    nome = db.Column(db.String(100), nullable=False)
-    login = db.Column(db.String(60), nullable=False, unique=True)
-    senha_hash = db.Column(db.String(255), nullable=False)
-    admin = db.Column(db.Boolean, nullable=False, default=False)
-    ativo = db.Column(db.Boolean, nullable=False, default=True)
-    criado_em = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    chave = db.Column(db.String(60), primary_key=True)
+    valor = db.Column(db.Text)
 
-    @db.validates("login")
-    def _normalizar_login(self, _key, login):
-        return login.strip().lower()
+    @staticmethod
+    def obter(chave_cfg, padrao=None):
+        item = db.session.get(Configuracao, chave_cfg)
+        return item.valor if item else padrao
 
-    def definir_senha(self, senha):
-        self.senha_hash = generate_password_hash(senha)
-
-    def confere_senha(self, senha):
-        return check_password_hash(self.senha_hash, senha)
+    @staticmethod
+    def definir(chave_cfg, valor):
+        item = db.session.get(Configuracao, chave_cfg) or Configuracao(chave=chave_cfg)
+        item.valor = valor
+        db.session.add(item)
 
 
-# Linhas padrão, na ordem das colunas das planilhas.
+def senha_configurada():
+    return Configuracao.obter("senha_casa") is not None
+
+
+def definir_senha_casa(senha):
+    Configuracao.definir("senha_casa", generate_password_hash(senha))
+
+
+def confere_senha_casa(senha):
+    hash_salvo = Configuracao.obter("senha_casa")
+    return bool(hash_salvo) and check_password_hash(hash_salvo, senha)
+
+
+# Linhas de trabalho, na ordem das planilhas.
 LINHAS_PADRAO = [
-    ("7 Flechas", True),
-    ("Maca", True),
-    ("Caboclo", False),
-    ("Boiadeiro", False),
-    ("Baiano", False),
-    ("Povo d'Água", False),
-    ("Preto Velho", False),
-    ("Erê", False),
-    ("Cigano", False),
-    ("Exu", False),
-    ("Pombo Gira", False),
-    ("Malandragem", False),
-    ("Mestres", False),
+    "Caboclo", "Preto Velho", "Baiano", "Boiadeiro", "Povo d'Água", "Cigano", "Erê",
+    "Exu", "Exu Mirim", "Pomba Gira", "Pomba Gira Mirim", "Malandragem", "Mestres",
+    "Princesas", "Cangaço",
 ]
 
 
 def garantir_linhas_padrao():
     existentes = {chave(l.nome) for l in Linha.query.all()}
-    for ordem, (nome, servico) in enumerate(LINHAS_PADRAO):
+    for ordem, nome in enumerate(LINHAS_PADRAO):
         if chave(nome) not in existentes:
-            db.session.add(Linha(nome=nome, ordem=ordem, servico=servico))
+            db.session.add(Linha(nome=nome, ordem=ordem))
     db.session.commit()

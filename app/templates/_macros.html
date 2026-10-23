@@ -1,10 +1,3 @@
-{% macro botao_excluir(url, pergunta) -%}
-<form method="post" action="{{ url }}" class="d-inline" onsubmit="return confirm({{ pergunta|tojson|forceescape }});">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <button class="btn btn-outline-danger btn-sm">Excluir</button>
-</form>
-{%- endmacro %}
-
 {% macro csrf() -%}
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 {%- endmacro %}
@@ -12,4 +5,24 @@
 {# versão do registro quando o formulário foi aberto: detecta edição simultânea #}
 {% macro versao(obj) -%}
 {% if obj.id %}<input type="hidden" name="versao" value="{{ obj.versao }}">{% endif %}
+{%- endmacro %}
+
+{% macro botao_excluir(url, pergunta, rotulo='Excluir', classe='btn-outline-danger btn-sm') -%}
+<form method="post" action="{{ url }}" class="d-inline" onsubmit="return confirm({{ pergunta|tojson|forceescape }});">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn {{ classe }}">{{ rotulo }}</button>
+</form>
+{%- endmacro %}
+
+{% macro selo_categoria(categoria) -%}
+<span class="badge selo-{{ categoria|lower }}">{{ categoria }}</span>
+{%- endmacro %}
+
+{# campo de busca de pessoa: o valor enviado é "Nome (#id)" #}
+{% macro campo_pessoa(nome, pessoas, valor='', placeholder='Digite o nome e escolha na lista', id_lista='lista-pessoas', exigir=False) -%}
+<input class="form-control" name="{{ nome }}" list="{{ id_lista }}" autocomplete="off" value="{{ valor }}"
+       placeholder="{{ placeholder }}" {% if exigir %}required{% endif %}>
+<datalist id="{{ id_lista }}">
+  {% for p in pessoas %}<option value="{{ p.nome }} (#{{ p.id }})">{{ p.categoria }}{% if p.apelido %} · {{ p.apelido }}{% endif %}</option>{% endfor %}
+</datalist>
 {%- endmacro %}

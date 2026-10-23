@@ -1,0 +1,21 @@
+{# campos de cadastro compartilhados entre "nova" e "editar"; usa `form` e `p` #}
+<div class="row g-3">
+  <div class="col-12 col-md-8"><label class="form-label" for="nome">Nome completo *</label>
+    <input class="form-control" id="nome" name="nome" required autocapitalize="words" value="{{ form.get('nome', p.nome or '') }}"></div>
+  <div class="col-12 col-md-4"><label class="form-label" for="cpf">CPF</label>
+    <input class="form-control" id="cpf" name="cpf" inputmode="numeric" placeholder="000.000.000-00" value="{{ form.get('cpf', p.cpf|cpf) }}"></div>
+  <div class="col-6 col-md-4"><label class="form-label" for="telefone">Telefone</label>
+    <input class="form-control" id="telefone" name="telefone" type="tel" inputmode="tel" value="{{ form.get('telefone', p.telefone|telefone) }}"></div>
+  <div class="col-6 col-md-4"><label class="form-label" for="cidade">Cidade</label>
+    <input class="form-control" id="cidade" name="cidade" list="cidades" value="{{ form.get('cidade', p.cidade or '') }}">
+    <datalist id="cidades"><option value="Bom Despacho"><option value="Nova Serrana"><option value="Lagoa da Prata"><option value="Divinópolis"><option value="Belo Horizonte"></datalist></div>
+  <div class="col-12 col-md-4"><label class="form-label" for="data_nascimento">Nascimento</label>
+    <input class="form-control" id="data_nascimento" type="date" name="data_nascimento"
+           value="{{ form.get('data_nascimento', p.data_nascimento.isoformat() if p.data_nascimento else '') }}"></div>
+  <div class="col-12 col-md-6"><label class="form-label" for="outra_casa">Tem vínculo com outra casa? Qual?</label>
+    <input class="form-control" id="outra_casa" name="outra_casa" placeholder="Deixe vazio se não tem" value="{{ form.get('outra_casa', p.outra_casa or '') }}"></div>
+  <div class="col-12 col-md-6"><label class="form-label" for="como_soube">Como ficou sabendo da casa?</label>
+    <input class="form-control" id="como_soube" name="como_soube" value="{{ form.get('como_soube', p.como_soube or '') }}"></div>
+  <div class="col-12"><label class="form-label" for="observacoes">Observações</label>
+    <textarea class="form-control" id="observacoes" name="observacoes" rows="2">{{ form.get('observacoes', p.observacoes or '') }}</textarea></div>
+</div>

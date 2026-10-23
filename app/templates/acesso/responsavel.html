@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block titulo %}Responsável do dia{% endblock %}
+{% block conteudo %}
+<div class="mx-auto caixa-acesso">
+  <h1 class="h4 mt-3">Quem está usando o sistema hoje?</h1>
+  <p class="text-muted">Seu nome fica registrado em tudo o que for lançado neste aparelho hoje.</p>
+  <form method="post">
+    {{ csrf() }}
+    <div class="mb-3"><label class="form-label" for="responsavel">Seu nome</label>
+      <input class="form-control form-control-lg" id="responsavel" name="responsavel" required autofocus
+             value="{{ sugestao }}" autocomplete="name"></div>
+    <button class="btn btn-success btn-lg w-100">Continuar</button>
+  </form>
+</div>
+{% endblock %}

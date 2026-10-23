@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, versao, botao_excluir %}
+{% block titulo %}Entidade{% endblock %}
+{% block conteudo %}
+<h1 class="h4">{{ ent.rotulo }}</h1>
+<p class="text-muted">Ficha espiritual de <a href="{{ url_for('pessoas.prontuario', id=ent.medium.id, aba='ficha') }}">{{ ent.medium.nome }}</a></p>
+<form method="post" class="caixa-form">
+  {{ csrf() }}{{ versao(ent) }}
+  <div class="mb-3"><label class="form-label">Linha</label>
+    <select class="form-select" name="linha_id" required>
+      {% for l in linhas %}<option value="{{ l.id }}" {% if l.id == ent.linha_id %}selected{% endif %}>{{ l.nome }}</option>{% endfor %}
+    </select></div>
+  <div class="mb-3"><label class="form-label">Nome da entidade</label>
+    <input class="form-control" name="nome" value="{{ ent.nome or '' }}" placeholder="Vazio enquanto não deu o nome">
+    <div class="form-text">Sem nome, aparece como “{{ ent.linha.nome }} de {{ ent.medium.nome_curto }}”.</div></div>
+  <div class="form-check form-switch mb-3">
+    <input class="form-check-input" type="checkbox" role="switch" name="ativa" id="ativa" {% if ent.ativa %}checked{% endif %}>
+    <label class="form-check-label" for="ativa">O médium ainda trabalha com esta entidade</label></div>
+  <div class="mb-3"><label class="form-label">Observações</label>
+    <textarea class="form-control" name="observacoes" rows="2">{{ ent.observacoes or '' }}</textarea></div>
+  <button class="btn btn-success">Salvar</button>
+  <a class="btn btn-link" href="{{ url_for('pessoas.prontuario', id=ent.medium.id, aba='ficha') }}">Cancelar</a>
+</form>
+<div class="mt-4">{{ botao_excluir(url_for('entidades.excluir', id=ent.id), 'Remover ' ~ ent.rotulo ~ ' da ficha?', 'Remover da ficha') }}</div>
+{% endblock %}

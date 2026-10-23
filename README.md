@@ -1,94 +1,116 @@
 # TUC7FJ — Sistema de gestão do terreiro
 
-Sistema web que substitui as planilhas do TUC7FJ: cadastro de médiuns e consulentes,
-entidades por linha, sessões/giras, presença e atendimentos.
+Aplicação web para a secretaria do terreiro, que substitui as planilhas. Funciona no celular, no
+tablet e no computador, e vários aparelhos podem usá-la ao mesmo tempo.
 
-**Stack:** Python 3.11+ · Flask · SQLAlchemy · SQLite · Jinja2 + Bootstrap 5 (servido localmente, funciona sem internet).
+**Stack:** Python 3.11+ · Flask · SQLAlchemy · SQLite · Bootstrap 5, servido localmente (funciona sem internet).
 
-## Como rodar
+## Fases
+
+| Fase | Conteúdo | Situação |
+|---|---|---|
+| 1 | Pessoas e trajetória (Consulente → Colaborador → Auxiliar → Corrente), funções (Cambone, Ogã), parentescos, ficha espiritual, importação dos cadastros | **pronta** |
+| 2 | Gira: chamada (SIM/NÃO), inscrição, atendimento puxado pelo cambone por entidade, retornos e prontuário | próxima |
+| 3 | Relatórios: frequência dos médiuns, retornos, histórico | depois |
+| Futuro | Inscrição online e perfis de acesso | — |
+
+## Regras de negócio da Fase 1
+
+- **A mesma pessoa evolui na casa:** Consulente → Colaborador → Auxiliar → Corrente. Toda mudança
+  de categoria fica no histórico, com data, observação e quem registrou.
+- Auxiliares e membros da Corrente podem ter **funções**: Cambone e Ogã.
+- **Incorpora:** indica quem incorpora. Na Corrente, nem todos incorporam.
+- **Ficha espiritual:** é a lista de entidades que o médium trabalha, cada uma pertencendo a uma
+  linha. Enquanto a entidade não der o nome, ela aparece pelo médium, por exemplo "Exu de Jessica".
+- **Linhas:** Caboclo, Preto Velho, Baiano, Boiadeiro, Povo d'Água, Cigano, Erê, Exu, Exu Mirim,
+  Pomba Gira, Pomba Gira Mirim, Malandragem, Mestres, Princesas e Cangaço.
+- **Parentesco:** parentes não conversam com as entidades uns dos outros. Quando há parentesco, o
+  prontuário mostra um aviso. Na Fase 2 ele também vai bloquear o chamado.
+
+## Acesso
+
+- Há **uma senha única da casa**. Ela é definida na primeira vez que o sistema é aberto.
+- Cada aparelho fica conectado por 30 dias.
+- Todo dia, o sistema pergunta **quem é o responsável**. Esse nome fica gravado em tudo o que for lançado.
+- Esqueceu a senha? Rode `flask --app run definir-senha` no computador onde o sistema está instalado.
+- Depois de 5 senhas erradas seguidas, o acesso daquele aparelho fica bloqueado por 5 minutos.
+
+## Instalação
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-
-flask --app run init-db            # cria instance/tuc7fj.db
-flask --app run importar data/     # importa os CSVs (veja abaixo)
-flask --app run run                # abre em http://127.0.0.1:5000
 ```
 
-Em produção, defina `SECRET_KEY` (e opcionalmente `DATABASE_URL`) como variáveis de ambiente.
+## Importar os cadastros da planilha
 
-## Importação das planilhas
-
-Coloque os CSVs em `data/`. A pasta não vai para o git porque guarda dados pessoais.
+1. No Google Drive, abra a planilha TUC7FJ.
+2. Vá em **Arquivo → Fazer download → Microsoft Excel (.xlsx)**.
+3. Salve o arquivo na pasta `data/`. Essa pasta não vai para o git, porque guarda dados pessoais.
 
 ```bash
-flask --app run importar data/                    # ou: python scripts/importar_csv.py data/
-flask --app run importar data/TUC7FJ_02_08_2026.csv --substituir   # reimporta uma sessão
-flask --app run importar data/TUC7FJ_PRESENÇA.csv --ano 2026        # datas sem ano
+flask --app run importar data/TUC7FJ.xlsx
 ```
 
-| Arquivo (pelo nome) | O que vira |
+| Aba | O que vira |
 |---|---|
-| `*CONSULENTE*.csv` | Consulentes (Nome, CPF, Telefone, Cidade, UF, Bairro, Endereço, E-mail, Nascimento, Obs) |
-| `*RETORNO_MEDIUNS*.csv` | Médiuns + entidades que cada um trabalha (colunas Caboclo, Exu, …; várias separadas por `/`) |
-| `*DD_MM_AAAA*.csv` | Uma sessão: blocos Corrente / Auxiliares / Colaborador / Consulentes → atendimentos e manifestações |
-| `*PRESEN*.csv` | Presença: formato largo (uma coluna por data com P/F/J) ou longo (Nome, Data, Presente) |
+| `PRESENÇA`, `RETORNO MEDIUNS`, `Página15` | Médiuns e sua categoria. Se houver divergência, vale a primeira aba |
+| `Cópia de GUIA` | Ficha espiritual (médium × linha → entidades) |
+| `GUIA` | Apelidos de quem incorpora ("Pai Igor", "Thiago DV") |
+| `CONSULENTE` | Consulentes: CPF, cidade, outra casa, como soube, telefone, parentesco |
 
-Os arquivos são processados nesta ordem: consulentes → retorno dos médiuns → sessões → presença.
-Toda a importação roda numa única transação, então um erro não deixa dados pela metade.
+As giras antigas **não** são importadas: o sistema começa do zero.
 
-O que a importação trata:
-- Codificação UTF-8 ou Windows-1252 e separador `,` ou `;`.
-- Cabeçalhos em qualquer linha do arquivo, inclusive vários blocos com ordem de colunas diferente.
-- Células vazias, `-`, `N/A` e `#N/D`.
-- Nomes em CAIXA ALTA convertidos para "Nome Próprio".
-- Comparação de nomes sem acento e sem diferença de maiúsculas (`Canindé ` = `CANINDE`).
-- CPF sem máscara e com o zero à esquerda perdido pelo Excel. CPFs inválidos são descartados com aviso.
-- Erros de digitação conhecidos, como `ORIENTEÇÃO` e `Sutão da Matas`. Ficam no dicionário `CORRECOES` em `app/importacao.py`.
-- Reimportação idempotente: pessoas e entidades são reaproveitadas, e sessões que já têm atendimentos são puladas (a menos que você use `--substituir`).
+Sobre a importação:
+- Pode ser repetida sem duplicar nada. Ela só preenche campos vazios, então não apaga o que foi digitado no sistema.
+- No fim, o relatório lista o que precisa ser conferido à mão:
+  - apelidos ambíguos (por exemplo, dois Thiagos);
+  - parentescos não identificados;
+  - parentescos vinculados por grafia parecida;
+  - categorias divergentes entre as abas.
 
-### Como as células das colunas de linha são interpretadas
+## Uso no dia a dia (vários aparelhos)
 
-Nas planilhas de sessão, uma célula como `Exu = Jessica` ou `Exu = 7 Garfos` pode citar a
-**entidade** ou o **médium** que atendeu. O importador guarda sempre o texto original e tenta resolver:
+### Opção A — um computador da casa como servidor
 
-1. `GERAL` → marcado como "Geral".
-2. Entidade já cadastrada naquela linha → entidade. Se só um médium trabalha essa entidade, ele também é registrado.
-3. Nome curto que identifica um único médium (`Pablo`, `Jessica`) → médium. A entidade dele naquela linha é preenchida se o RETORNO_MEDIUNS tiver só uma.
-4. Nome que pode ser de mais de um médium (`Thiago DV`, com dois Thiagos) → fica só o texto, com aviso.
-5. Qualquer outro valor → nova entidade naquela linha.
+```bash
+python servidor.py
+```
 
-No fim, o relatório lista as **entidades criadas**. Confira essa lista: um nome de pessoa pode ter
-virado entidade. Para corrigir, preencha o **apelido** do médium (por exemplo, "Thiago DV") e
-reimporte com `--substituir`, ou ajuste na tela de Entidades.
+O programa mostra um endereço como `http://192.168.0.10:8000`. Abra esse endereço no navegador
+dos celulares e tablets conectados ao **mesmo Wi-Fi**. Para ter o sistema como um aplicativo,
+use "Adicionar à tela inicial".
 
-## Telas
+- O computador precisa ficar ligado durante a gira.
+- No Windows, permita o Python no firewall quando o aviso aparecer.
 
-- **Sessões:** criar gira → marcar presença (presente/falta/justificativa) → registrar atendimentos.
-  O formulário de atendimento tem uma linha por linha de trabalho (entidade + médium + anotação).
-  Um consulente novo pode ser cadastrado direto pelo nome, e o botão "Salvar e registrar outro" agiliza o lançamento em sequência.
-- **Médiuns:** CRUD, grupo (Corrente/Auxiliar/Colaborador), ativo/inativo, entidades que trabalha, histórico e % de frequência.
-- **Consulentes:** CRUD com busca por nome, CPF ou telefone, filtro por cidade e histórico de atendimentos.
-- **Entidades:** CRUD por linha, com os médiuns de cada entidade e o número de atendimentos.
+### Opção B — hospedagem na internet
+
+O sistema funciona em qualquer serviço que rode Python com disco persistente (PythonAnywhere,
+Render, Railway, uma VPS…). Configure:
+- `SECRET_KEY`: uma chave aleatória longa;
+- `COOKIE_SEGURO=1`: obrigatório com HTTPS;
+- `DATABASE_URL`: opcional, para usar outro caminho de banco.
+
+O banco é o arquivo `instance/tuc7fj.db`. **Faça cópia de segurança dele.**
+
+### Uso simultâneo
+
+- **Edição:** o SQLite fica em modo WAL, para que as leituras não esperem as gravações. Cada
+  cadastro tem um número de versão. Se dois aparelhos editarem a mesma pessoa, o segundo a salvar
+  recebe um aviso e não apaga, sem perceber, o que o primeiro fez.
+- **CPF:** é único. Duas pessoas cadastrando o mesmo CPF ao mesmo tempo não geram duplicata.
 
 ## Modelo de dados
 
 ```
-Medium ─┬─< MediumEntidade >── Entidade >── Linha
-        ├─< Presenca >── Sessao
-        └─< Atendimento (quando o atendido é médium)
-Consulente ──< Atendimento >── Sessao
-Atendimento ──< Manifestacao >── Linha
-                     ├── Entidade (opcional)
-                     └── Medium responsável (opcional)
+Pessoa ─┬─< PessoaFuncao            (Cambone, Ogã)
+        ├─< HistoricoCategoria      (de → para, data, observação, quem registrou)
+        ├─< Entidade >── Linha      (ficha espiritual; nome pode ficar vazio)
+        └─< Parentesco >── Pessoa   (laço guardado uma vez, vale nos dois sentidos)
+Configuracao                        (senha da casa)
 ```
-
-- `Linha` inclui as linhas de trabalho (Caboclo, Exu, Pombo Gira…) e os "serviços" 7 Flechas e Maca,
-  cujo conteúdo é o tipo de trabalho (Orientação Espiritual, Consagrar Pano…).
-- `Atendimento` = uma linha da planilha de sessão (categoria, parentesco, retorno).
-- `Manifestacao` = cada célula preenchida das colunas de linha.
 
 ## Testes
 
@@ -96,4 +118,4 @@ Atendimento ──< Manifestacao >── Linha
 pytest
 ```
 
-Os testes usam planilhas **fictícias** em `tests/fixtures/`.
+Os testes usam apenas dados **fictícios**. A planilha de teste é gerada dentro do próprio teste.

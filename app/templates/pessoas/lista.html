@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_macros.html" import selo_categoria %}
+{% block titulo %}Pessoas{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2">
+  <h1 class="h3 mb-0">Pessoas <small class="text-muted fs-6">({{ pagina.total }})</small></h1>
+  <a class="btn btn-success" href="{{ url_for('pessoas.nova') }}">+ Cadastrar</a>
+</div>
+<form class="row g-2 mb-3" method="get" role="search">
+  <div class="col-12 col-md-6">
+    <input class="form-control" type="search" name="q" value="{{ busca }}" placeholder="Nome, apelido, CPF ou telefone" autofocus>
+  </div>
+  <div class="col-6 col-md-3">
+    <select class="form-select" name="categoria" onchange="this.form.submit()">
+      <option value="">Todas as categorias</option>
+      <option value="mediuns" {% if categoria == 'mediuns' %}selected{% endif %}>Membros da casa</option>
+      {% for c in categorias %}<option {% if c == categoria %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <select class="form-select" name="situacao" onchange="this.form.submit()">
+      {% for v, r in [('ativos','Ativos'),('inativos','Inativos'),('todos','Todos')] %}
+        <option value="{{ v }}" {% if v == situacao %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-12 col-md-1"><button class="btn btn-outline-secondary w-100">Buscar</button></div>
+</form>
+
+<div class="list-group">
+  {% for p in pagina.items %}
+    <a class="list-group-item list-group-item-action {% if not p.ativo %}text-muted{% endif %}" href="{{ url_for('pessoas.prontuario', id=p.id) }}">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <div class="fw-semibold">{{ p.nome }}
+            {% if p.apelido %}<small class="text-muted fw-normal">“{{ p.apelido }}”</small>{% endif %}</div>
+          <div class="small text-muted">
+            {{ [p.cidade, p.telefone|telefone]|select|join(' · ') }}
+            {% for f in p.nomes_funcoes %}<span class="badge text-bg-light border">{{ f }}</span>{% endfor %}
+            {% if p.incorpora %}<span class="badge text-bg-light border">incorpora</span>{% endif %}
+            {% if not p.ativo %}<span class="badge text-bg-secondary">inativo</span>{% endif %}
+          </div>
+        </div>
+        {{ selo_categoria(p.categoria) }}
+      </div>
+    </a>
+  {% else %}
+    <div class="list-group-item text-muted">Ninguém encontrado.
+      {% if busca %}<a href="{{ url_for('pessoas.nova') }}">Cadastrar “{{ busca }}”?</a>{% endif %}</div>
+  {% endfor %}
+</div>
+
+{% if pagina.pages > 1 %}
+<nav class="mt-3"><ul class="pagination flex-wrap">
+  {% for n in pagina.iter_pages(left_edge=1, right_edge=1, left_current=1, right_current=2) %}
+    {% if n %}<li class="page-item {% if n == pagina.page %}active{% endif %}">
+      <a class="page-link" href="{{ url_for('pessoas.lista', page=n, q=busca, categoria=categoria, situacao=situacao) }}">{{ n }}</a></li>
+    {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+  {% endfor %}
+</ul></nav>
+{% endif %}
+{% endblock %}

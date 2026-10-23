@@ -1,8 +1,0 @@
-<div class="mb-3"><label class="form-label">Nome</label>
-  <input class="form-control" name="nome" required value="{{ request.form.get('nome', u.nome if u else '') or '' }}"></div>
-<div class="mb-3"><label class="form-label">Usuário (para entrar)</label>
-  <input class="form-control" name="login" required autocapitalize="none" value="{{ request.form.get('login', u.login if u else '') or '' }}"></div>
-<div class="mb-3"><label class="form-label">Senha{% if u and u.id %} <small class="text-muted">(deixe em branco para manter)</small>{% endif %}</label>
-  <input class="form-control" type="password" name="senha" autocomplete="new-password" {% if not (u and u.id) %}required minlength="6"{% endif %}></div>
-<div class="mb-3"><label class="form-label">Repita a senha</label>
-  <input class="form-control" type="password" name="senha2" autocomplete="new-password"></div>

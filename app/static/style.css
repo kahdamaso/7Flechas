@@ -1,8 +1,30 @@
-.table td, .table th { vertical-align: middle; }
-.manifestacao { white-space: nowrap; }
-.tabela-presenca .form-check-inline { margin-right: .5rem; }
-.sticky-acoes { position: sticky; bottom: 0; background: var(--bs-body-bg); padding: .75rem 0; border-top: 1px solid var(--bs-border-color); }
-.table-atendimentos td { font-size: .9rem; }
-.table-atendimentos td, .table-atendimentos th { font-size: .82rem; padding: .25rem .4rem; }
-.table-atendimentos td:first-child { min-width: 13rem; }
-.table-atendimentos td:nth-child(2), .table-atendimentos td:nth-child(3) { min-width: 7rem; }
+body { background: var(--bs-tertiary-bg); }
+main.container { max-width: 960px; }
+.caixa-acesso { max-width: 24rem; }
+.caixa-form { max-width: 34rem; }
+
+/* cores por categoria */
+.selo-consulente { background: #6c757d; color: #fff; }
+.selo-colaborador { background: #0d6efd; color: #fff; }
+.selo-auxiliar { background: #fd7e14; color: #fff; }
+.selo-corrente { background: #198754; color: #fff; }
+
+.list-group-item { background: var(--bs-body-bg); }
+.dados dt { font-weight: 500; color: var(--bs-secondary-color); }
+
+/* barra de salvar sempre visível no fim da tela em formulários longos */
+.barra-acoes {
+  position: sticky; bottom: 0; z-index: 10;
+  display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+  margin-top: 1.5rem; padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom));
+  background: var(--bs-tertiary-bg); border-top: 1px solid var(--bs-border-color);
+}
+
+/* celular */
+@media (max-width: 767.98px) {
+  /* 16px evita o zoom automático do iPhone ao tocar no campo */
+  .form-control, .form-select { font-size: 16px; }
+  .barra-acoes .btn-lg { flex: 1 1 auto; }
+  h1.h3 { font-size: 1.4rem; }
+  .list-group-item { padding: .75rem .9rem; }
+}

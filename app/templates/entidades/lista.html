@@ -1,31 +1,24 @@
 {% extends "base.html" %}
-{% from "_macros.html" import botao_excluir %}
 {% block titulo %}Entidades{% endblock %}
 {% block conteudo %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h3 mb-0">Entidades por linha</h1>
-  <a class="btn btn-success" href="{{ url_for('entidades.nova') }}">+ Nova entidade</a>
-</div>
-{% for l in linhas %}
-  <h2 class="h5 mt-4" id="linha{{ l.id }}">{{ l.nome }} <small class="text-muted">({{ l.entidades|length }})</small>
-    <a class="btn btn-link btn-sm" href="{{ url_for('entidades.nova', linha=l.id) }}">+ adicionar</a></h2>
-  {% if l.entidades %}
-  <table class="table table-sm">
-    <thead><tr><th style="width:30%">Entidade</th><th>Médiuns</th><th style="width:10%">Atendimentos</th><th style="width:15%"></th></tr></thead>
-    <tbody>
-    {% for e in l.entidades %}
-      <tr>
-        <td>{{ e.nome }}</td>
-        <td class="small">{% for v in e.mediuns %}<a href="{{ url_for('mediuns.detalhe', id=v.medium.id) }}">{{ v.medium.apelido or v.medium.nome }}</a>{% if not loop.last %}, {% endif %}{% else %}<span class="text-muted">—</span>{% endfor %}</td>
-        <td>{{ usos.get(e.id, 0) }}</td>
-        <td class="text-end">
-          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('entidades.editar', id=e.id) }}">Editar</a>
-          {{ botao_excluir(url_for('entidades.excluir', id=e.id), 'Excluir a entidade ' ~ e.nome ~ '?') }}
-        </td>
-      </tr>
+<h1 class="h3 mb-3">Entidades da casa</h1>
+<form class="mb-3" method="get" role="search">
+  <input class="form-control" type="search" name="q" value="{{ busca }}" placeholder="Buscar entidade ou médium">
+</form>
+<p class="text-muted small">Para adicionar ou alterar, abra o prontuário do médium, na aba “Ficha espiritual”.</p>
+{% set algum = namespace(achou=false) %}
+{% for l in linhas if por_linha.get(l.id) %}
+  {% set algum.achou = true %}
+  <h2 class="h6 mt-3 mb-2">{{ l.nome }} <span class="badge text-bg-secondary">{{ por_linha[l.id]|length }}</span></h2>
+  <div class="list-group mb-2">
+    {% for e in por_linha[l.id] %}
+      <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center {% if not e.ativa %}text-muted{% endif %}"
+         href="{{ url_for('pessoas.prontuario', id=e.medium.id, aba='ficha') }}">
+        <span>{{ e.rotulo }}{% if not e.ativa %} <span class="badge text-bg-secondary">inativa</span>{% endif %}</span>
+        <span class="small text-muted text-end">{{ e.medium.nome_curto }}</span>
+      </a>
     {% endfor %}
-    </tbody>
-  </table>
-  {% else %}<p class="text-muted small">Nenhuma entidade cadastrada.</p>{% endif %}
+  </div>
 {% endfor %}
+{% if not algum.achou %}<p class="text-muted">Nenhuma entidade encontrada.</p>{% endif %}
 {% endblock %}

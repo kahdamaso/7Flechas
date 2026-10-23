@@ -2,6 +2,8 @@ Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 SQLAlchemy==2.0.36
 Flask-WTF==1.2.2
+openpyxl==3.1.5
+waitress==3.0.2
 
 # desenvolvimento / testes
 pytest==8.3.4
