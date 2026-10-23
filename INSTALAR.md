@@ -1,5 +1,7 @@
 # Como instalar e testar o TUC7FJ
 
+> Prefere testar online, sem instalar nada? Veja o [ONLINE.md](ONLINE.md).
+
 O sistema roda em **um computador da casa**, que funciona como servidor. Os celulares e tablets
 conectados ao **mesmo Wi-Fi** acessam pelo navegador. Não é preciso internet durante a gira, só
 o Wi-Fi.
