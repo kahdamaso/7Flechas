@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Médiuns{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Médiuns <small class="text-muted fs-6">({{ mediuns|length }})</small></h1>
+  <a class="btn btn-success" href="{{ url_for('mediuns.novo') }}">+ Novo médium</a>
+</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-5"><input class="form-control" name="q" value="{{ busca }}" placeholder="Buscar por nome ou apelido"></div>
+  <div class="col-md-3">
+    <select class="form-select" name="grupo">
+      <option value="">Todos os grupos</option>
+      {% for g in grupos %}<option {% if g == grupo %}selected{% endif %}>{{ g }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <select class="form-select" name="situacao">
+      {% for v, r in [('ativos','Ativos'),('inativos','Inativos'),('todos','Todos')] %}
+        <option value="{{ v }}" {% if v == situacao %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2"><button class="btn btn-outline-secondary w-100">Filtrar</button></div>
+</form>
+<div class="table-responsive">
+<table class="table table-hover">
+  <thead><tr><th>Nome</th><th>Grupo</th><th>Telefone</th><th>Entidades</th><th></th></tr></thead>
+  <tbody>
+  {% for m in mediuns %}
+    <tr class="{% if not m.ativo %}text-muted{% endif %}">
+      <td><a href="{{ url_for('mediuns.detalhe', id=m.id) }}">{{ m.nome }}</a>
+        {% if m.apelido %}<small class="text-muted">“{{ m.apelido }}”</small>{% endif %}
+        {% if not m.ativo %}<span class="badge text-bg-light">inativo</span>{% endif %}</td>
+      <td>{{ m.grupo }}</td>
+      <td>{{ m.telefone|telefone }}</td>
+      <td class="small">{{ m.entidades|map(attribute='entidade.nome')|join(', ') }}</td>
+      <td class="text-end"><a class="btn btn-outline-primary btn-sm" href="{{ url_for('mediuns.editar', id=m.id) }}">Editar</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">Nenhum médium encontrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

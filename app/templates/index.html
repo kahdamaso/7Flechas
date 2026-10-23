@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block titulo %}Início{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Painel</h1>
+  <a class="btn btn-success" href="{{ url_for('sessoes.nova') }}">+ Nova sessão / gira</a>
+</div>
+<div class="row g-3 mb-4">
+  {% for rotulo, n in totais.items() %}
+    <div class="col-6 col-md">
+      <div class="card text-center h-100"><div class="card-body">
+        <div class="fs-3 fw-semibold">{{ n }}</div><div class="text-muted small">{{ rotulo }}</div>
+      </div></div>
+    </div>
+  {% endfor %}
+</div>
+<h2 class="h5">Últimas sessões</h2>
+<div class="list-group">
+  {% for s, n in ultimas %}
+    <a class="list-group-item list-group-item-action d-flex justify-content-between"
+       href="{{ url_for('sessoes.detalhe', id=s.id) }}">
+      <span>{{ s.data|data }} — {{ s.tipo }}{% if s.descricao %} · {{ s.descricao }}{% endif %}</span>
+      <span class="badge text-bg-secondary">{{ n }} atendimentos</span>
+    </a>
+  {% else %}
+    <div class="list-group-item text-muted">Nenhuma sessão registrada ainda.</div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Consulentes{% endblock %}
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h3 mb-0">Consulentes <small class="text-muted fs-6">({{ pagina.total }})</small></h1>
+  <a class="btn btn-success" href="{{ url_for('consulentes.novo') }}">+ Novo consulente</a>
+</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6"><input class="form-control" name="q" value="{{ busca }}" placeholder="Nome, CPF ou telefone"></div>
+  <div class="col-md-4">
+    <select class="form-select" name="cidade">
+      <option value="">Todas as cidades</option>
+      {% for c in cidades %}<option {% if c == cidade %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2"><button class="btn btn-outline-secondary w-100">Buscar</button></div>
+</form>
+<div class="table-responsive">
+<table class="table table-hover">
+  <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Cidade</th><th></th></tr></thead>
+  <tbody>
+  {% for c in pagina.items %}
+    <tr>
+      <td><a href="{{ url_for('consulentes.detalhe', id=c.id) }}">{{ c.nome }}</a></td>
+      <td>{{ c.cpf|cpf }}</td>
+      <td>{{ c.telefone|telefone }}</td>
+      <td>{{ c.cidade or '' }}{% if c.uf %}/{{ c.uf }}{% endif %}</td>
+      <td class="text-end"><a class="btn btn-outline-primary btn-sm" href="{{ url_for('consulentes.editar', id=c.id) }}">Editar</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">Nenhum consulente encontrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if pagina.pages > 1 %}
+<nav><ul class="pagination">
+  {% for p in pagina.iter_pages() %}
+    {% if p %}<li class="page-item {% if p == pagina.page %}active{% endif %}">
+      <a class="page-link" href="{{ url_for('consulentes.lista', page=p, q=busca, cidade=cidade) }}">{{ p }}</a></li>
+    {% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+  {% endfor %}
+</ul></nav>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,10 @@
+{% macro botao_excluir(url, pergunta) -%}
+<form method="post" action="{{ url }}" class="d-inline" onsubmit="return confirm({{ pergunta|tojson|forceescape }});">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="btn btn-outline-danger btn-sm">Excluir</button>
+</form>
+{%- endmacro %}
+
+{% macro csrf() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}

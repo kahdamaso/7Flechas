@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block titulo %}Presença {{ sessao.data|data }}{% endblock %}
+{% block conteudo %}
+<h1 class="h3">Presença — {{ sessao.tipo }} {{ sessao.data|data }}</h1>
+<p class="text-muted">Deixe "—" para quem não deve constar nesta sessão.</p>
+<form method="post">
+  {{ csrf() }}
+  <div class="mb-3">
+    <button type="button" class="btn btn-outline-success btn-sm" onclick="marcarTodos('presente')">Todos presentes</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="marcarTodos('')">Limpar</button>
+  </div>
+  {% for grupo, mediuns in por_grupo.items() if mediuns %}
+    <h2 class="h5 mt-3">{{ grupo }}{{ 'es' if grupo == 'Colaborador' else ('es' if grupo == 'Auxiliar' else '') }}</h2>
+    <table class="table table-sm tabela-presenca">
+      {% for m in mediuns %}
+        {% set p = atuais.get(m.id) %}
+        {% set status = ('presente' if p.presente else 'falta') if p else '' %}
+        <tr>
+          <td style="width: 40%">{{ m.nome }}{% if m.apelido %} <small class="text-muted">“{{ m.apelido }}”</small>{% endif %}</td>
+          <td style="width: 30%">
+            {% for v, r in [('presente','Presente'), ('falta','Falta'), ('','—')] %}
+              <div class="form-check form-check-inline">
+                <input class="form-check-input status" type="radio" name="status_{{ m.id }}" id="s{{ m.id }}{{ v }}" value="{{ v }}" {% if status == v %}checked{% endif %}>
+                <label class="form-check-label" for="s{{ m.id }}{{ v }}">{{ r }}</label>
+              </div>
+            {% endfor %}
+          </td>
+          <td><input class="form-control form-control-sm" name="just_{{ m.id }}" placeholder="Justificativa da falta" value="{{ p.justificativa if p and p.justificativa else '' }}"></td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endfor %}
+  <div class="sticky-acoes">
+    <button class="btn btn-success">Salvar presença</button>
+    <a class="btn btn-link" href="{{ url_for('sessoes.detalhe', id=sessao.id) }}">Cancelar</a>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function marcarTodos(valor) {
+  document.querySelectorAll('input.status[value="' + valor + '"]').forEach(function (el) { el.checked = true; });
+}
+</script>
+{% endblock %}
